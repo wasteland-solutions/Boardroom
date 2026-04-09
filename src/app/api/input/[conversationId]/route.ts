@@ -49,6 +49,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ conversationId
       mcpServers: appSettings.mcpServers,
       permissionTimeoutMs: appSettings.permissionTimeoutMs,
       authMode: appSettings.authMode,
+      anthropicApiKey: appSettings.anthropicApiKey,
+      claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
     });
     await agentClient.call({ op: 'send_user_message', conversationId, text: input.text });
     return NextResponse.json({ ok: true });

@@ -9,7 +9,7 @@ Think iMessage, but the person on the other end is Claude Code — and it can ac
 ## Features
 
 - **Multiple conversations in a sidebar.** Each conversation is one Claude Code session. Sessions resume across restarts via the SDK's `resume` option.
-- **Two ways to authenticate.** Anthropic API key (billed to your Anthropic Console account) *or* your Claude Code login (billed to your Claude Max / Pro subscription). Toggle in Settings.
+- **Two ways to authenticate with Anthropic.** Paste an Anthropic API key (billed to your Anthropic Console account) *or* a Claude Code OAuth token (billed to your Claude Max / Pro subscription). Both are configured in Settings — no host credential mounts, no env-var gymnastics.
 - **Per-conversation config.** Each conversation is bound to a working directory, a model (Opus / Sonnet / Haiku), and a permission mode (`ask` / `acceptEdits` / `bypassPermissions`).
 - **Inline permission prompts.** In `ask` mode, every tool call that needs approval appears as a message bubble with Approve / Deny buttons. The agent pauses until you respond (or until the configurable timeout fires).
 - **Token streaming.** Assistant responses stream token-by-token over SSE.
@@ -72,15 +72,9 @@ volumes:
 
 Once the app is running, go to **Settings** → **Working directories** and add the container-side paths (e.g. `/workspaces/my-app`).
 
-### 3. (Optional) Use your Claude Code login instead of an API key
+### 3. (Optional) Pre-seed your Anthropic API key
 
-If you want Boardroom to bill against your Claude Max / Pro subscription, run `claude login` on your host machine first, then uncomment this line in `docker-compose.yml`:
-
-```yaml
-- ${HOME}/.claude:/home/boardroom/.claude
-```
-
-Leave `ANTHROPIC_API_KEY` empty in `.env`, and after first boot go to **Settings** → **Authentication** and pick **Claude Code login**.
+You can paste it into **Settings → Credentials** after first sign-in, but if you'd rather have it ready on boot, set `ANTHROPIC_API_KEY` in `.env`. The UI value always takes precedence if both are set.
 
 ### 4. Boot it
 
@@ -89,7 +83,13 @@ docker compose up -d
 docker compose logs -f boardroom
 ```
 
-Open <http://localhost:3000>, sign in through your OIDC provider, click ⚙ to open Settings, pick your auth mode, add at least one working directory, save, then click **+** in the sidebar to start your first conversation.
+Open <http://localhost:3000>, sign in, click ⚙ to open Settings, and configure:
+
+1. **Credentials** — pick *Anthropic API key* and paste one from [console.anthropic.com](https://console.anthropic.com/settings/keys), *or* pick *Claude Code subscription* and paste a token you get from running `claude setup-token` on any machine where you're already logged in. See [Authentication modes](#authentication-modes) below.
+2. **Working directories** — add the container-side path(s) of whatever projects you mounted.
+3. Save.
+
+Then click **+** in the sidebar to start your first conversation.
 
 ### Updating
 
@@ -138,7 +138,7 @@ The `dev` script runs `next dev` and `tsx watch src/agent/worker.ts` concurrentl
 | `OIDC_REDIRECT_URI` | with OIDC | Must match what's registered with your provider |
 | `ALLOWED_OIDC_SUBJECT` | with OIDC | Only this `sub` claim may sign in (either this or `ALLOWED_OIDC_EMAIL`) |
 | `ALLOWED_OIDC_EMAIL` | with OIDC | Only this email may sign in |
-| `ANTHROPIC_API_KEY` | conditional | Required only when Settings → Authentication is set to "Anthropic API key". Leave unset to use your Claude Code login. |
+| `ANTHROPIC_API_KEY` | no | Optional pre-seed for the API key shown in Settings → Credentials. The UI value overrides this if both are set. |
 | `DATABASE_PATH` | no | Default: `/app/data/boardroom.db` in Docker, `./data/boardroom.db` locally |
 | `AGENT_WORKER_SOCKET` | no | Unix socket path for Next.js ↔ worker RPC. Default: `/tmp/boardroom-agent.sock` in Docker |
 | `PORT` | no | Default: `3000` |
@@ -147,10 +147,43 @@ You must configure **at least one** sign-in method: either `BOARDROOM_USERNAME` 
 
 ## Authentication modes
 
-Pick one in **Settings → Authentication**:
+All credentials are pasted into **Settings → Credentials** after sign-in and stored in Boardroom's SQLite data volume. Nothing is mounted from the host. Pick one:
 
-- **Anthropic API key** — the worker passes `ANTHROPIC_API_KEY` through to the Claude Code child process. Billed to your Anthropic Console account.
-- **Claude Code login** — the worker strips `ANTHROPIC_API_KEY` from the environment before spawning the Claude Code CLI so it falls back to the OAuth token from `claude login`. Billed to your Claude Max / Pro subscription. On Docker, mount `${HOME}/.claude:/home/boardroom/.claude` so the CLI inside the container can read the token.
+### Anthropic API key (billed to your Anthropic Console account)
+
+1. Go to <https://console.anthropic.com/settings/keys>
+2. Create a key, copy it
+3. In Boardroom: **Settings → Credentials** → pick *Anthropic API key* → paste → **Save**
+
+The worker injects it as `ANTHROPIC_API_KEY` into the spawned Claude Code child process.
+
+*(Alternative: set `ANTHROPIC_API_KEY` in `.env` before boot. The UI value overrides the env var if both are set.)*
+
+### Claude Code subscription (billed to your Max / Pro plan)
+
+This uses a **long-lived OAuth token** produced by the Claude Code CLI's `setup-token` command. The token is designed for headless / container use and survives across sessions.
+
+On any machine where you've run `claude auth login`:
+
+```bash
+claude setup-token
+```
+
+Complete the browser flow, then copy the token that's printed.
+
+In Boardroom: **Settings → Credentials** → pick *Claude Code subscription* → paste the token → **Save**.
+
+The worker injects it as `CLAUDE_CODE_OAUTH_TOKEN` into the spawned Claude Code child process. `ANTHROPIC_API_KEY` is explicitly cleared from the child's environment so the CLI doesn't prefer the Console billing path.
+
+#### Running inside Docker with no local `claude` CLI
+
+The Docker image ships with the Claude Code CLI pre-installed. You can generate a token directly inside the container:
+
+```bash
+docker compose exec boardroom claude setup-token
+```
+
+Complete the flow in your browser, copy the token, paste into **Settings → Credentials**.
 
 ## Permission modes
 

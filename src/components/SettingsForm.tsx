@@ -44,6 +44,8 @@ export function SettingsForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           authMode: settings.authMode,
+          anthropicApiKey: settings.anthropicApiKey,
+          claudeCodeOauthToken: settings.claudeCodeOauthToken,
           defaultModel: settings.defaultModel,
           defaultPermissionMode: settings.defaultPermissionMode,
           mcpServers: parsedMcp,
@@ -94,7 +96,8 @@ export function SettingsForm({
       <h1>Settings</h1>
 
       <section>
-        <h2>Authentication</h2>
+        <h2>Credentials</h2>
+
         <label>
           <span>How should Claude Code authenticate?</span>
           <select
@@ -102,21 +105,52 @@ export function SettingsForm({
             onChange={(e) => setSettings({ ...settings, authMode: e.target.value as AuthMode })}
           >
             <option value="api_key">Anthropic API key — billed to your Anthropic Console account</option>
-            <option value="claude_code">Claude Code login — billed to your Claude Max / Pro subscription</option>
+            <option value="claude_code">Claude Code subscription — billed to your Max / Pro plan</option>
           </select>
         </label>
-        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: -4 }}>
-          {settings.authMode === 'api_key' ? (
-            <>Uses <code>ANTHROPIC_API_KEY</code> from the server environment.</>
-          ) : (
-            <>
-              The worker strips <code>ANTHROPIC_API_KEY</code> before spawning the Claude Code CLI
-              so it falls back to the OAuth token from <code>claude login</code>. Requires that
-              you&apos;ve run <code>claude login</code> on the host (or mounted <code>~/.claude/</code>
-              into the container).
-            </>
-          )}
-        </div>
+
+        {settings.authMode === 'api_key' ? (
+          <label>
+            <span>Anthropic API key</span>
+            <input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="sk-ant-api03-..."
+              value={settings.anthropicApiKey}
+              onChange={(e) => setSettings({ ...settings, anthropicApiKey: e.target.value })}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+              Get one from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
+              Stored in SQLite on the Boardroom data volume. Overrides the <code>ANTHROPIC_API_KEY</code>
+              environment variable if both are set. Leave blank to fall back to the env var.
+            </div>
+          </label>
+        ) : (
+          <label>
+            <span>Claude Code OAuth token</span>
+            <input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="sk-ant-oat01-..."
+              value={settings.claudeCodeOauthToken}
+              onChange={(e) => setSettings({ ...settings, claudeCodeOauthToken: e.target.value })}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
+              A long-lived token produced by running <code>claude setup-token</code> on any machine
+              where you&apos;ve already logged in with your Claude subscription. Open a terminal,
+              run the command, complete the browser flow, copy the resulting token, and paste it
+              here. The worker injects it as <code>CLAUDE_CODE_OAUTH_TOKEN</code> when spawning
+              the Claude Code CLI child process.
+              <br />
+              <br />
+              Running Boardroom in Docker? You can also run{' '}
+              <code>docker exec -it boardroom claude setup-token</code> inside the container — the
+              token it prints can be pasted here.
+            </div>
+          </label>
+        )}
       </section>
 
       <section>

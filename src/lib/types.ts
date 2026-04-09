@@ -23,6 +23,14 @@ export const DEFAULT_MODELS: ModelId[] = [
 
 export interface AppSettings {
   authMode: AuthMode;
+  // Pasted in Settings → Credentials. Stored in SQLite; overrides the
+  // ANTHROPIC_API_KEY env var. Never shipped to the browser except through
+  // the authenticated settings API for the owner to edit.
+  anthropicApiKey: string;
+  // A long-lived Claude Code OAuth token produced by running
+  // `claude setup-token` on a machine with an active Claude subscription.
+  // Injected as CLAUDE_CODE_OAUTH_TOKEN into the spawned CLI child.
+  claudeCodeOauthToken: string;
   defaultModel: ModelId;
   defaultPermissionMode: PermissionMode;
   mcpServers: Record<string, McpServerConfig>;
@@ -50,6 +58,8 @@ export type McpServerConfig =
 
 export const DEFAULT_SETTINGS: AppSettings = {
   authMode: 'api_key',
+  anthropicApiKey: '',
+  claudeCodeOauthToken: '',
   defaultModel: 'claude-opus-4-6',
   defaultPermissionMode: 'ask',
   mcpServers: {},
@@ -148,6 +158,8 @@ export type WorkerRpcRequest =
       mcpServers: Record<string, McpServerConfig>;
       permissionTimeoutMs: number;
       authMode: AuthMode;
+      anthropicApiKey: string;
+      claudeCodeOauthToken: string;
     }
   | { id: string; op: 'send_user_message'; conversationId: string; text: string }
   | { id: string; op: 'set_permission_mode'; conversationId: string; mode: PermissionMode }

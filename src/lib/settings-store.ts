@@ -11,6 +11,8 @@ import {
 
 const KEYS = {
   authMode: 'auth_mode',
+  anthropicApiKey: 'anthropic_api_key',
+  claudeCodeOauthToken: 'claude_code_oauth_token',
   defaultModel: 'default_model',
   defaultPermissionMode: 'default_permission_mode',
   mcpServers: 'mcp_servers',
@@ -38,6 +40,8 @@ export function getSettings(): AppSettings {
 
   return {
     authMode: parseJson<AuthMode>(KEYS.authMode, DEFAULT_SETTINGS.authMode),
+    anthropicApiKey: parseJson<string>(KEYS.anthropicApiKey, DEFAULT_SETTINGS.anthropicApiKey),
+    claudeCodeOauthToken: parseJson<string>(KEYS.claudeCodeOauthToken, DEFAULT_SETTINGS.claudeCodeOauthToken),
     defaultModel: parseJson<ModelId>(KEYS.defaultModel, DEFAULT_SETTINGS.defaultModel),
     defaultPermissionMode: parseJson<PermissionMode>(KEYS.defaultPermissionMode, DEFAULT_SETTINGS.defaultPermissionMode),
     mcpServers: parseJson(KEYS.mcpServers, DEFAULT_SETTINGS.mcpServers),
@@ -60,6 +64,8 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   };
 
   if ('authMode' in patch) upsert(KEYS.authMode, next.authMode);
+  if ('anthropicApiKey' in patch) upsert(KEYS.anthropicApiKey, next.anthropicApiKey);
+  if ('claudeCodeOauthToken' in patch) upsert(KEYS.claudeCodeOauthToken, next.claudeCodeOauthToken);
   if ('defaultModel' in patch) upsert(KEYS.defaultModel, next.defaultModel);
   if ('defaultPermissionMode' in patch) upsert(KEYS.defaultPermissionMode, next.defaultPermissionMode);
   if ('mcpServers' in patch) upsert(KEYS.mcpServers, next.mcpServers);

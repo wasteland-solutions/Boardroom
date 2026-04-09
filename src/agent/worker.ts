@@ -16,16 +16,38 @@ for (const candidate of [resolve(process.cwd(), '.env')]) {
   }
 }
 
-// Remember the original ANTHROPIC_API_KEY loaded from .env. `authMode`
-// toggles whether we expose it to the spawned Claude Code child or strip it
-// so the CLI falls back to its stored OAuth token.
-const originalApiKey = process.env.ANTHROPIC_API_KEY;
+// Remember the original ANTHROPIC_API_KEY loaded from .env. It's used only
+// as a fallback when the user hasn't pasted an API key into Settings.
+const envApiKey = process.env.ANTHROPIC_API_KEY;
 
-function applyAuthMode(mode: 'api_key' | 'claude_code') {
-  if (mode === 'api_key') {
-    if (originalApiKey) process.env.ANTHROPIC_API_KEY = originalApiKey;
+// Apply the credentials the user configured in Settings to process.env
+// *before* spawning the Claude Code child. The SDK forwards process.env to
+// the child, which reads these two vars to decide how to authenticate.
+//
+// - api_key mode: ANTHROPIC_API_KEY is set to whatever the UI provided,
+//   falling back to the value loaded from .env. CLAUDE_CODE_OAUTH_TOKEN is
+//   cleared so the CLI doesn't try to prefer OAuth.
+// - claude_code mode: CLAUDE_CODE_OAUTH_TOKEN is set to whatever the UI
+//   provided (produced by running `claude setup-token` on a machine with a
+//   Claude subscription). ANTHROPIC_API_KEY is cleared so the CLI doesn't
+//   prefer the Console billing path.
+function applyCredentials(opts: {
+  mode: 'api_key' | 'claude_code';
+  anthropicApiKey: string;
+  claudeCodeOauthToken: string;
+}) {
+  if (opts.mode === 'api_key') {
+    const key = opts.anthropicApiKey || envApiKey || '';
+    if (key) process.env.ANTHROPIC_API_KEY = key;
+    else delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   } else {
     delete process.env.ANTHROPIC_API_KEY;
+    if (opts.claudeCodeOauthToken) {
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = opts.claudeCodeOauthToken;
+    } else {
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
   }
 }
 
@@ -52,7 +74,11 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
       return { pong: true };
 
     case 'start_or_resume': {
-      applyAuthMode(req.authMode);
+      applyCredentials({
+        mode: req.authMode,
+        anthropicApiKey: req.anthropicApiKey,
+        claudeCodeOauthToken: req.claudeCodeOauthToken,
+      });
       const session = sessions.startOrResume({
         conversationId: req.conversationId,
         cwd: req.cwd,

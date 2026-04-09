@@ -47,6 +47,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ conversationId:
       mcpServers: appSettings.mcpServers,
       permissionTimeoutMs: appSettings.permissionTimeoutMs,
       authMode: appSettings.authMode,
+      anthropicApiKey: appSettings.anthropicApiKey,
+      claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
     });
   } catch (err) {
     console.error('[stream] start_or_resume failed:', err);

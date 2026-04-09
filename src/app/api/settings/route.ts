@@ -17,6 +17,8 @@ const McpServerSchema = z.union([
 
 const PatchSchema = z.object({
   authMode: z.enum(['api_key', 'claude_code']).optional(),
+  anthropicApiKey: z.string().max(512).optional(),
+  claudeCodeOauthToken: z.string().max(4096).optional(),
   defaultModel: z.enum(DEFAULT_MODELS as [ModelId, ...ModelId[]]).optional(),
   defaultPermissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
   mcpServers: z.record(McpServerSchema).optional(),
