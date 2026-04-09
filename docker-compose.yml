@@ -1,0 +1,57 @@
+services:
+  boardroom:
+    # Prebuilt image from GHCR. Uncomment `build:` below to build from source
+    # instead (useful during development).
+    image: ghcr.io/wasteland-solutions/boardroom:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: boardroom
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    env_file:
+      - .env
+
+    # Reminders of the env vars the app needs. The authoritative values live
+    # in your .env — these lines just make the intent explicit.
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/boardroom.db
+      - AGENT_WORKER_SOCKET=/tmp/boardroom-agent.sock
+      - PORT=3000
+
+    volumes:
+      # SQLite database + WAL files. Survives `docker compose down`.
+      - ./data:/app/data
+
+      # --- Working directories ---
+      # Mount whatever projects you want Claude Code to be able to read/edit.
+      # Add the *container-side* paths (e.g. /workspaces/my-app) as allowed
+      # cwds in Settings once the app is running.
+      - ./workspaces:/workspaces
+      # Example: mount a specific project directly
+      # - /Users/you/Code/my-app:/workspaces/my-app
+
+      # --- Claude Code login (optional) ---
+      # Only needed when Settings → Authentication is set to "Claude Code
+      # login". Mount your host's ~/.claude so the CLI inside the container
+      # can read the OAuth token created by `claude login`.
+      # - ${HOME}/.claude:/home/boardroom/.claude
+
+    # Recommended security tightening for a single-user self-host.
+    # Comment out if it gets in your way.
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/auth/session').then(r=>process.exit(r.ok||r.status===401?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+# Named volumes are unnecessary here — the bind mounts above already survive
+# container restarts and make the data visible on the host for backup.

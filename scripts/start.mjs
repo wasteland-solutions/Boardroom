@@ -1,16 +1,51 @@
 #!/usr/bin/env node
-// Production entrypoint: background the compiled agent worker, then exec next start.
+// Production entrypoint:
+//   1. Run Drizzle migrations (idempotent — creates tables on first boot).
+//   2. Spawn the compiled agent worker as a background child.
+//   3. Exec `next start` in the foreground.
+// Both children are torn down cleanly on SIGINT / SIGTERM.
+
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
 
+// --- 1. Migrations ---
+async function runMigrations() {
+  const dbPath = resolve(process.env.DATABASE_PATH ?? './data/boardroom.db');
+  const dir = dirname(dbPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const { default: Database } = await import('better-sqlite3');
+  const { drizzle } = await import('drizzle-orm/better-sqlite3');
+  const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
+
+  const sqlite = new Database(dbPath);
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('foreign_keys = ON');
+
+  const db = drizzle(sqlite);
+  const migrationsFolder = resolve(repoRoot, 'drizzle');
+  migrate(db, { migrationsFolder });
+
+  console.log(`[boardroom] migrations up-to-date (${dbPath})`);
+  sqlite.close();
+}
+
+try {
+  await runMigrations();
+} catch (err) {
+  console.error('[boardroom] migration failed:', err);
+  process.exit(1);
+}
+
+// --- 2. Agent worker (background child) ---
 const workerPath = resolve(repoRoot, 'dist/agent/worker.js');
 if (!existsSync(workerPath)) {
-  console.error(`[boardroom] agent worker not found at ${workerPath}. Did you run pnpm build?`);
+  console.error(`[boardroom] agent worker not found at ${workerPath}. Did you run 'pnpm build'?`);
   process.exit(1);
 }
 
@@ -24,22 +59,27 @@ worker.on('exit', (code) => {
   process.exit(code ?? 1);
 });
 
+let shuttingDown = false;
 const shutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   if (!worker.killed) worker.kill(signal);
+  if (nextProc && !nextProc.killed) nextProc.kill(signal);
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-// Give the worker a tick to bind its socket before Next starts calling it.
-await new Promise((r) => setTimeout(r, 250));
+// Give the worker a tick to bind its Unix socket before Next starts calling it.
+await new Promise((r) => setTimeout(r, 300));
 
-const next = spawn('npx', ['next', 'start'], {
+// --- 3. Next.js (foreground) ---
+const nextBin = resolve(repoRoot, 'node_modules/next/dist/bin/next');
+const nextProc = spawn(process.execPath, [nextBin, 'start'], {
   stdio: 'inherit',
   env: process.env,
-  shell: process.platform === 'win32',
 });
 
-next.on('exit', (code) => {
+nextProc.on('exit', (code) => {
   shutdown('SIGTERM');
   process.exit(code ?? 0);
 });
