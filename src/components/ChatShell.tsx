@@ -169,9 +169,16 @@ export function ChatShell({
     () => (
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-title">Boardroom</div>
+          <div className="sidebar-brand">
+            <div className="wordmark">B</div>
+            <div className="sidebar-title">Boardroom</div>
+          </div>
           <div className="sidebar-actions">
-            <button className="icon-btn" title="New conversation" onClick={() => router.push('/c/new')}>
+            <button
+              className="icon-btn"
+              title="New conversation"
+              onClick={() => router.push('/c/new')}
+            >
               +
             </button>
             <a className="icon-btn" href="/settings" title="Settings">
@@ -179,22 +186,27 @@ export function ChatShell({
             </a>
           </div>
         </div>
-        <div className="conv-list">
-          {conversations.map((c) => (
-            <a
-              key={c.id}
-              href={`/c/${c.id}`}
-              className={`conv-item${current?.id === c.id ? ' active' : ''}`}
-            >
-              <div>{c.title ?? 'Untitled'}</div>
-              <div className="meta">{c.cwd}</div>
-            </a>
-          ))}
-          {conversations.length === 0 && (
-            <div className="conv-item" style={{ color: 'var(--text-dim)', cursor: 'default' }}>
-              No conversations yet
-            </div>
-          )}
+
+        <div>
+          <div className="sidebar-eyebrow">Conversations</div>
+          <div className="conv-list">
+            {conversations.map((c) => (
+              <a
+                key={c.id}
+                href={`/c/${c.id}`}
+                className={`conv-item${current?.id === c.id ? ' active' : ''}`}
+              >
+                <div className="title">{c.title ?? 'Untitled'}</div>
+                <div className="meta">{c.cwd}</div>
+              </a>
+            ))}
+            {conversations.length === 0 && <div className="conv-empty">No conversations yet</div>}
+          </div>
+        </div>
+
+        <div className="sidebar-footer">
+          <span className="dot" />
+          Agent worker online
         </div>
       </aside>
     ),
@@ -205,7 +217,7 @@ export function ChatShell({
     return (
       <div className="app">
         {sidebar}
-        <main className="chat">
+        <main className="main-panel">
           <NewConversationForm cwds={cwds} />
         </main>
       </div>
@@ -216,10 +228,13 @@ export function ChatShell({
     return (
       <div className="app">
         {sidebar}
-        <main className="chat">
-          <div className="empty-state">
-            <h2>Nothing here yet</h2>
-            <p>Create a new conversation from the sidebar.</p>
+        <main className="main-panel">
+          <div className="chat">
+            <div className="empty-state">
+              <div className="wordmark">B</div>
+              <h2>Nothing here yet</h2>
+              <p>Create a new conversation from the sidebar to get started.</p>
+            </div>
           </div>
         </main>
       </div>
@@ -229,42 +244,49 @@ export function ChatShell({
   return (
     <div className="app">
       {sidebar}
-      <main className="chat">
-        <header className="chat-header">
-          <div>
-            <div className="chat-title">{current.title ?? 'Untitled'}</div>
-            <div className="chat-subtitle">
-              {current.model} · {current.permissionMode} · {current.cwd}
+      <main className="main-panel">
+        <section className="chat">
+          <header className="chat-header">
+            <div>
+              <div className="chat-title">{current.title ?? 'Untitled'}</div>
+              <div className="chat-subtitle">
+                <span className="chip">{current.model}</span>
+                <span className="chip">{current.permissionMode}</span>
+                <span className="chip">{current.cwd}</span>
+              </div>
             </div>
+            <button className="btn stop" onClick={stop}>
+              Stop
+            </button>
+          </header>
+          <div className="messages" ref={messagesRef}>
+            {blocks.length === 0 && (
+              <div className="empty-state">
+                <div className="wordmark">B</div>
+                <h2>Say hi to Claude Code</h2>
+                <p>Type a message below to get started. Cmd/Ctrl+Enter sends.</p>
+              </div>
+            )}
+            {blocks.map((b) => (
+              <MessageBlock key={b.id} block={b} onResolve={resolvePermission} />
+            ))}
           </div>
-          <button className="btn deny" onClick={stop}>
-            Stop
-          </button>
-        </header>
-        <div className="messages" ref={messagesRef}>
-          {blocks.length === 0 && (
-            <div className="empty-state">
-              <h2>Say hi to Claude Code</h2>
-              <p>Type a message below to get started.</p>
-            </div>
-          )}
-          {blocks.map((b) => (
-            <MessageBlock key={b.id} block={b} onResolve={resolvePermission} />
-          ))}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>last seq: {lastSeq}</div>
-        </div>
-        <div className="composer">
-          <textarea
-            rows={2}
-            placeholder="Message Claude Code (Cmd/Ctrl+Enter to send)"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKey}
-            disabled={sending}
-          />
-          <button className="btn" onClick={send} disabled={sending || !text.trim()}>
-            Send
-          </button>
+          <div className="composer">
+            <textarea
+              rows={2}
+              placeholder="Message Claude Code — Cmd/Ctrl+Enter to send"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKey}
+              disabled={sending}
+            />
+            <button className="btn" onClick={send} disabled={sending || !text.trim()}>
+              Send
+            </button>
+          </div>
+        </section>
+        <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'right' }}>
+          last seq: {lastSeq}
         </div>
       </main>
     </div>
@@ -288,9 +310,9 @@ function MessageBlock({
   }
   if (block.kind === 'assistant') {
     return (
-      <div className="msg assistant">
-        <div className="msg-role">Claude{block.streaming ? ' (streaming)' : ''}</div>
-        <div className="msg-bubble">{block.text || '…'}</div>
+      <div className={`msg assistant${block.streaming ? ' streaming' : ''}`}>
+        <div className="msg-role">Claude Code</div>
+        <div className="msg-bubble">{block.text || (block.streaming ? '' : '…')}</div>
       </div>
     );
   }
@@ -298,8 +320,10 @@ function MessageBlock({
     return (
       <div className="msg">
         <div className="tool-call">
-          <span className="tool-name">{block.name}</span>{' '}
-          <span>{truncate(JSON.stringify(block.input), 120)}</span>
+          <div className="tool-header">
+            <span className="tool-name">{block.name}</span>
+          </div>
+          <div className="tool-input">{truncate(JSON.stringify(block.input), 160)}</div>
         </div>
       </div>
     );
@@ -307,11 +331,13 @@ function MessageBlock({
   if (block.kind === 'tool_result') {
     return (
       <div className="msg">
-        <div className="tool-call">
-          <span style={{ color: block.isError ? 'var(--danger)' : 'var(--success)' }}>
-            {block.isError ? '✗ tool error' : '✓ tool result'}
-          </span>
-          <div style={{ marginTop: 4 }}>{truncate(stringifyContent(block.content), 240)}</div>
+        <div className={`tool-call ${block.isError ? 'result-err' : 'result-ok'}`}>
+          <div className="tool-header">
+            <span className="tool-name">
+              {block.isError ? '✗ tool error' : '✓ tool result'}
+            </span>
+          </div>
+          <div className="tool-input">{truncate(stringifyContent(block.content), 260)}</div>
         </div>
       </div>
     );
@@ -320,30 +346,28 @@ function MessageBlock({
     return (
       <div className="msg">
         <div className="permission-prompt">
-          <div className="title">Permission request</div>
+          <div className="title">⚠ Permission request</div>
           <div className="tool">
-            {block.toolName} {truncate(JSON.stringify(block.input), 120)}
+            <strong>{block.toolName}</strong> {truncate(JSON.stringify(block.input), 200)}
           </div>
-          <div className="actions">
-            {block.resolved ? (
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-                {block.resolved === 'allow'
-                  ? '✓ allowed'
-                  : block.resolved === 'expired'
-                  ? '⏱ expired'
-                  : '✗ denied'}
-              </div>
-            ) : (
-              <>
-                <button className="btn" onClick={() => onResolve(block.requestId, 'allow')}>
-                  Approve
-                </button>
-                <button className="btn deny" onClick={() => onResolve(block.requestId, 'deny')}>
-                  Deny
-                </button>
-              </>
-            )}
-          </div>
+          {block.resolved ? (
+            <div className="resolved">
+              {block.resolved === 'allow'
+                ? '✓ Allowed'
+                : block.resolved === 'expired'
+                ? '⏱ Expired'
+                : '✗ Denied'}
+            </div>
+          ) : (
+            <div className="actions">
+              <button className="btn" onClick={() => onResolve(block.requestId, 'allow')}>
+                Approve
+              </button>
+              <button className="btn ghost" onClick={() => onResolve(block.requestId, 'deny')}>
+                Deny
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -367,11 +391,14 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
 
   if (cwds.length === 0) {
     return (
-      <div className="empty-state">
-        <h2>No working directories configured</h2>
-        <p>
-          Add one in <a href="/settings">Settings</a> before starting a conversation.
-        </p>
+      <div className="chat">
+        <div className="empty-state">
+          <div className="wordmark">B</div>
+          <h2>No working directories configured</h2>
+          <p>
+            Add one in <a href="/settings">Settings</a> before starting a conversation.
+          </p>
+        </div>
       </div>
     );
   }
@@ -400,9 +427,11 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
   };
 
   return (
-    <div className="settings-panel">
+    <div className="panel">
       <h1>New conversation</h1>
+      <p className="lead">Each conversation is one Claude Code session, bound to a working directory, model, and permission mode.</p>
       <section>
+        <h2>Details</h2>
         <label>
           <span>Title (optional)</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
@@ -438,7 +467,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
             <option value="bypassPermissions">bypassPermissions — full auto</option>
           </select>
         </label>
-        <button className="btn" onClick={submit} disabled={busy || !cwd}>
+        <button className="btn" onClick={submit} disabled={busy || !cwd} style={{ marginTop: 4 }}>
           {busy ? 'Creating…' : 'Create conversation'}
         </button>
       </section>
@@ -502,43 +531,60 @@ function hydrateBlocks(rows: StoredMessage[]): DisplayBlock[] {
 
 function applyFrames(prev: DisplayBlock[], frames: StreamFrame[]): DisplayBlock[] {
   const next = [...prev];
-  const partialByMsgId = new Map<string, number>();
-  for (let i = next.length - 1; i >= 0; i--) {
+
+  // Index of existing assistant blocks keyed by their (stable) messageId so
+  // we can locate and mutate them in place. The runner sends the Anthropic
+  // message id for both partial deltas and the final assistant_message
+  // frame, so they land in the same bucket.
+  const idxByMessageId = new Map<string, number>();
+  for (let i = 0; i < next.length; i++) {
     const b = next[i];
-    if (b.kind === 'assistant' && b.streaming) {
-      partialByMsgId.set(b.id, i);
-      break;
-    }
+    if (b.kind === 'assistant') idxByMessageId.set(b.id, i);
   }
 
   for (const frame of frames) {
     if (frame.type === 'partial_assistant_text') {
-      const key = `partial:${frame.messageId}`;
-      let idx = partialByMsgId.get(key);
-      if (idx === undefined) {
+      const existing = idxByMessageId.get(frame.messageId);
+      if (existing === undefined) {
         next.push({
           kind: 'assistant',
-          id: key,
+          id: frame.messageId,
           seq: frame.seq,
           text: frame.delta,
           streaming: true,
         });
-        partialByMsgId.set(key, next.length - 1);
+        idxByMessageId.set(frame.messageId, next.length - 1);
       } else {
-        const b = next[idx] as Extract<DisplayBlock, { kind: 'assistant' }>;
-        next[idx] = { ...b, text: b.text + frame.delta };
+        const b = next[existing] as Extract<DisplayBlock, { kind: 'assistant' }>;
+        // Only append if the block is still streaming. If the final message
+        // has already landed (streaming === undefined/false) we ignore late
+        // deltas to avoid doubling the text.
+        if (b.streaming) {
+          next[existing] = { ...b, text: b.text + frame.delta };
+        }
       }
     } else if (frame.type === 'assistant_message') {
-      // Replace any in-progress streaming block.
-      const stillStreaming = next.findIndex((b) => b.kind === 'assistant' && b.streaming);
-      if (stillStreaming >= 0) next.splice(stillStreaming, 1);
-      next.push({
-        kind: 'assistant',
-        id: frame.messageId,
-        seq: frame.seq,
-        text: extractText(frame.content),
-      });
-      partialByMsgId.clear();
+      const finalText = extractText(frame.content);
+      const existing = idxByMessageId.get(frame.messageId);
+      if (existing === undefined) {
+        // No streaming bubble for this id — push finalized block directly.
+        next.push({
+          kind: 'assistant',
+          id: frame.messageId,
+          seq: frame.seq,
+          text: finalText,
+        });
+        idxByMessageId.set(frame.messageId, next.length - 1);
+      } else {
+        // Replace streaming bubble with the authoritative text and mark as
+        // finalized (drop `streaming` flag).
+        next[existing] = {
+          kind: 'assistant',
+          id: frame.messageId,
+          seq: frame.seq,
+          text: finalText,
+        };
+      }
     } else if (frame.type === 'user_message') {
       if (!next.find((b) => b.id === frame.messageId)) {
         next.push({

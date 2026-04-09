@@ -59,18 +59,23 @@ Edit `.env` and fill in:
   - **OIDC SSO:** set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` (typically `http://localhost:3000/api/auth/callback/oidc`) and either `ALLOWED_OIDC_EMAIL` or `ALLOWED_OIDC_SUBJECT`.
 - `ANTHROPIC_API_KEY` — **only** if you plan to use the "Anthropic API key" auth mode. Leave blank to use your Claude Code login instead (see below).
 
-### 2. Decide how to mount your project directories
+### 2. Mount your project directories into the container
 
-The agent needs to see your code to be useful. In `docker-compose.yml` there's a `volumes:` section with `./workspaces:/workspaces` by default — drop or symlink your projects into `./workspaces`, or add extra mounts:
+**This is the step most people miss.** Claude Code runs *inside* the container, so it can only see files under paths you explicitly mount in from your host.
+
+Open `docker-compose.yml` and find the `volumes:` block. There's a default mount of `./workspaces:/workspaces` — any projects you drop (or symlink) into `./workspaces` on your host become visible to the container at `/workspaces`.
+
+Or mount specific projects directly:
 
 ```yaml
 volumes:
-  - ./data:/app/data
-  - ./workspaces:/workspaces
-  - /Users/you/Code/my-app:/workspaces/my-app    # add as many as you like
+  - ./data:/app/data                          # keep this — SQLite lives here
+  - ./workspaces:/workspaces                  # default workspaces folder
+  - /Users/you/Code/my-app:/workspaces/my-app # your real project, mounted directly
+  - /Users/you/Code/website:/workspaces/website
 ```
 
-Once the app is running, go to **Settings** → **Working directories** and add the container-side paths (e.g. `/workspaces/my-app`).
+**After boot**, go to **Settings → Working directories** and add the **container-side** path (the part after the colon, e.g. `/workspaces/my-app`) — not the host path. Claude Code's `cwd` will be set to that directory for every conversation bound to it.
 
 ### 3. (Optional) Pre-seed your Anthropic API key
 

@@ -27,13 +27,25 @@ services:
       # SQLite database + WAL files. Survives `docker compose down`.
       - ./data:/app/data
 
-      # --- Working directories ---
-      # Mount whatever projects you want Claude Code to be able to read/edit.
-      # Add the *container-side* paths (e.g. /workspaces/my-app) as allowed
-      # cwds in Settings once the app is running.
+      # ------------------------------------------------------------------
+      # WORKING DIRECTORIES — the key step most people miss.
+      # ------------------------------------------------------------------
+      # Claude Code runs *inside* the container, so it can only see files
+      # under paths you explicitly mount into it from your host machine.
+      # Mount any project you want to work on, then add the *container-side*
+      # path (e.g. /workspaces/my-app) in Settings → Working directories.
+      #
+      # Default mount: a single host folder where you drop symlinks or
+      # whole projects. Everything under ./workspaces on the host becomes
+      # visible at /workspaces in the container.
       - ./workspaces:/workspaces
-      # Example: mount a specific project directly
+      #
+      # ALTERNATIVE: mount specific projects directly by uncommenting and
+      # editing lines like these, then add the container-side path (the
+      # part after the colon) in Settings:
       # - /Users/you/Code/my-app:/workspaces/my-app
+      # - /Users/you/Code/website:/workspaces/website
+      # - /Users/you/notes:/workspaces/notes
       #
       # Credentials (Anthropic API key OR Claude Code OAuth token) are
       # configured in Settings → Credentials after sign-in. No host

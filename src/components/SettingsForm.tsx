@@ -92,8 +92,9 @@ export function SettingsForm({
   };
 
   return (
-    <div className="settings-panel">
+    <div className="panel">
       <h1>Settings</h1>
+      <p className="lead">Credentials and preferences. Everything lives on the SQLite data volume.</p>
 
       <section>
         <h2>Credentials</h2>
@@ -120,11 +121,11 @@ export function SettingsForm({
               value={settings.anthropicApiKey}
               onChange={(e) => setSettings({ ...settings, anthropicApiKey: e.target.value })}
             />
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+            <span className="hint">
               Get one from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
               Stored in SQLite on the Boardroom data volume. Overrides the <code>ANTHROPIC_API_KEY</code>
               environment variable if both are set. Leave blank to fall back to the env var.
-            </div>
+            </span>
           </label>
         ) : (
           <label>
@@ -137,7 +138,7 @@ export function SettingsForm({
               value={settings.claudeCodeOauthToken}
               onChange={(e) => setSettings({ ...settings, claudeCodeOauthToken: e.target.value })}
             />
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
+            <span className="hint">
               A long-lived token produced by running <code>claude setup-token</code> on any machine
               where you&apos;ve already logged in with your Claude subscription. Open a terminal,
               run the command, complete the browser flow, copy the resulting token, and paste it
@@ -145,10 +146,10 @@ export function SettingsForm({
               the Claude Code CLI child process.
               <br />
               <br />
-              Running Boardroom in Docker? You can also run{' '}
-              <code>docker exec -it boardroom claude setup-token</code> inside the container — the
-              token it prints can be pasted here.
-            </div>
+              Running Boardroom in Docker? Run{' '}
+              <code>docker compose exec boardroom claude setup-token</code> inside the container —
+              the token it prints can be pasted here.
+            </span>
           </label>
         )}
       </section>
@@ -196,29 +197,36 @@ export function SettingsForm({
 
       <section>
         <h2>Working directories</h2>
+        <div className="banner" style={{ marginBottom: 14 }}>
+          <strong>Running in Docker?</strong> The paths here are{' '}
+          <strong>container-side</strong> paths. Mount your host project into the container first
+          (edit <code>docker-compose.yml</code> — add{' '}
+          <code>- /Users/you/Code/my-app:/workspaces/my-app</code> under the <code>volumes:</code>{' '}
+          block and <code>docker compose up -d</code>), then add the container-side path{' '}
+          (<code>/workspaces/my-app</code>) here.
+        </div>
         {cwdList.length === 0 && (
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 10 }}>
             Add at least one directory so you can start a conversation.
           </div>
         )}
         {cwdList.map((c) => (
-          <div
-            key={c.path}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}
-          >
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13 }}>{c.label}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>
-                {c.path}
-              </div>
+          <div className="cwd-row" key={c.path}>
+            <div className="info">
+              <div className="label">{c.label}</div>
+              <div className="path">{c.path}</div>
             </div>
-            <button className="btn deny" onClick={() => removeCwd(c.path)}>
+            <button className="btn ghost" onClick={() => removeCwd(c.path)}>
               Remove
             </button>
           </div>
         ))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input placeholder="/absolute/path/to/repo" value={newPath} onChange={(e) => setNewPath(e.target.value)} />
+        <div className="cwd-add">
+          <input
+            placeholder="/workspaces/my-app"
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+          />
           <input placeholder="Label" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
           <button className="btn" onClick={addCwd}>
             Add

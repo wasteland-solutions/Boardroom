@@ -27,6 +27,12 @@ export class ActiveQuery {
   private queue: SDKUserMessage[] = [];
   private queueResolvers: Array<(v: IteratorResult<SDKUserMessage>) => void> = [];
   private done = false;
+  // ID of the Anthropic assistant message currently being streamed. Set on
+  // message_start and reused for every content_block_delta in that turn so
+  // the UI can key every delta against one stable message ID and append to
+  // a single growing bubble. Cleared when the final SDKAssistantMessage for
+  // the same turn is persisted.
+  private currentStreamingMessageId: string | null = null;
   public readonly abortController = new AbortController();
   public lastActivity = Date.now();
 
@@ -184,7 +190,11 @@ export class ActiveQuery {
           ? (content as Array<{ type?: string }>).filter((b) => b.type === 'tool_use')
           : [];
         const seq = persistence.nextSeq(convId);
-        const messageId = persistence.writeMessage({
+        // Prefer the Anthropic message id so the UI can match this final
+        // frame against the partial deltas it was streaming. Fall back to
+        // the persistence row id for anything exotic.
+        const anthropicMessageId = assistantMsg.message?.id ?? null;
+        const rowId = persistence.writeMessage({
           conversationId: convId,
           role: 'assistant',
           sdkMessageType: 'assistant',
@@ -192,6 +202,7 @@ export class ActiveQuery {
           toolCalls: toolUses.length > 0 ? toolUses : undefined,
           seq,
         });
+        const messageId = anthropicMessageId ?? rowId;
         this.emit(convId, {
           type: 'assistant_message',
           conversationId: convId,
@@ -199,6 +210,10 @@ export class ActiveQuery {
           messageId,
           content,
         });
+        // Done streaming this turn.
+        if (anthropicMessageId && anthropicMessageId === this.currentStreamingMessageId) {
+          this.currentStreamingMessageId = null;
+        }
         // Also emit tool_use frames for the UI to render collapsible cards.
         for (const tu of toolUses as Array<{ id?: string; name?: string; input?: unknown }>) {
           const tuSeq = persistence.nextSeq(convId);
@@ -249,18 +264,43 @@ export class ActiveQuery {
       case 'stream_event' as SDKMessage['type']: {
         // Partial assistant token deltas — emit without persisting.
         const ev = msg as unknown as {
-          event?: { type?: string; delta?: { type?: string; text?: string } };
-          uuid?: string;
+          event?: {
+            type?: string;
+            message?: { id?: string };
+            delta?: { type?: string; text?: string };
+          };
         };
-        if (ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta') {
+        const inner = ev.event;
+        if (!inner) return;
+
+        // Capture the Anthropic message id for this turn so every delta
+        // gets the same messageId and the UI streams into one bubble.
+        if (inner.type === 'message_start' && inner.message?.id) {
+          this.currentStreamingMessageId = inner.message.id;
+          return;
+        }
+
+        if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {
+          // If we somehow missed message_start, still emit but with a
+          // placeholder id; worst case the UI falls back to batching on
+          // the last streaming bubble.
+          const messageId = this.currentStreamingMessageId ?? 'streaming';
           const seq = persistence.nextSeq(convId);
           this.emit(convId, {
             type: 'partial_assistant_text',
             conversationId: convId,
             seq,
-            delta: ev.event.delta.text ?? '',
-            messageId: ev.uuid ?? 'partial',
+            delta: inner.delta.text ?? '',
+            messageId,
           });
+          return;
+        }
+
+        if (inner.type === 'message_stop') {
+          // Don't clear currentStreamingMessageId here — the final
+          // SDKAssistantMessage may still arrive with more content; we
+          // clear in the 'assistant' case once we've seen it.
+          return;
         }
         return;
       }
