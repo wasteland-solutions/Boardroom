@@ -333,6 +333,7 @@ button {
   justify-content: center;
   flex-direction: column;
   gap: 20px;
+  padding: 40px 20px;
 }
 .signin-panel h1 {
   margin: 0;
@@ -341,4 +342,98 @@ button {
 .signin-panel p {
   color: var(--text-dim);
   margin: 0;
+}
+.signin-panel code {
+  background: var(--bg-elev);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.signin-forms {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.signin-form {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.signin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.signin-form label span {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.signin-form input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.signin-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.signin-form button {
+  margin-top: 4px;
+}
+.signin-divider {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: relative;
+}
+.signin-divider::before,
+.signin-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: var(--border);
+}
+.signin-divider::before {
+  left: 0;
+}
+.signin-divider::after {
+  right: 0;
+}
+.signin-error {
+  background: #3a1515;
+  border: 1px solid #6b2020;
+  color: #ff9a9a;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  max-width: 320px;
+  text-align: center;
+}
+.signin-empty {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.5;
 }

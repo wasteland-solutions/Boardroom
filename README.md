@@ -16,7 +16,7 @@ Think iMessage, but the person on the other end is Claude Code — and it can ac
 - **Project settings + hooks.** The agent loads `CLAUDE.md`, `.claude/settings.json`, and hooks from the target repo (`settingSources: ['project']`).
 - **MCP servers.** Configure MCP servers in Settings — they're passed straight through to the SDK.
 - **Persistent history.** Every message is stored in SQLite; the UI hydrates from SQLite on page load and SSE reconnects replay missed frames via `Last-Event-ID`.
-- **Single-user OIDC SSO.** Auth via any standards-compliant OIDC provider (Google, Authentik, Keycloak, etc.). Only one `sub` / email is allowed.
+- **Pick your auth.** Single-user username + password (set in `.env`) *or* OIDC SSO (Google, Authentik, Keycloak, …), or both at once. Whichever you configure shows up on the sign-in page.
 
 ## Architecture
 
@@ -54,8 +54,9 @@ cp .env.example .env
 Edit `.env` and fill in:
 
 - `AUTH_SECRET` — generate with `openssl rand -base64 32`
-- `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` — from your OIDC provider. Redirect URI should be `http://localhost:3000/api/auth/callback/oidc` (or your public URL).
-- `ALLOWED_OIDC_EMAIL` *or* `ALLOWED_OIDC_SUBJECT` — only this identity will be allowed to sign in.
+- **Sign-in method** — pick one or both:
+  - **Username/password (simplest):** set `BOARDROOM_USERNAME` and `BOARDROOM_PASSWORD`. Done.
+  - **OIDC SSO:** set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` (typically `http://localhost:3000/api/auth/callback/oidc`) and either `ALLOWED_OIDC_EMAIL` or `ALLOWED_OIDC_SUBJECT`.
 - `ANTHROPIC_API_KEY` — **only** if you plan to use the "Anthropic API key" auth mode. Leave blank to use your Claude Code login instead (see below).
 
 ### 2. Decide how to mount your project directories
@@ -129,16 +130,20 @@ The `dev` script runs `next dev` and `tsx watch src/agent/worker.ts` concurrentl
 | Variable | Required | Description |
 |---|---|---|
 | `AUTH_SECRET` | yes | Auth.js cookie encryption secret (`openssl rand -base64 32`) |
-| `OIDC_ISSUER_URL` | yes | OIDC issuer URL (discovery endpoint used automatically) |
-| `OIDC_CLIENT_ID` | yes | OIDC client id |
-| `OIDC_CLIENT_SECRET` | yes | OIDC client secret |
-| `OIDC_REDIRECT_URI` | yes | Must match what's registered with your provider |
-| `ALLOWED_OIDC_SUBJECT` | one of | Only this `sub` claim may sign in |
-| `ALLOWED_OIDC_EMAIL` | one of | Only this email may sign in |
+| `BOARDROOM_USERNAME` | one of | Username for the local password sign-in. Required only if you don't configure OIDC. |
+| `BOARDROOM_PASSWORD` | one of | Password for the local sign-in. Compared in constant time. |
+| `OIDC_ISSUER_URL` | one of | OIDC issuer URL (discovery endpoint used automatically). Required only if you don't use local password auth. |
+| `OIDC_CLIENT_ID` | with OIDC | OIDC client id |
+| `OIDC_CLIENT_SECRET` | with OIDC | OIDC client secret |
+| `OIDC_REDIRECT_URI` | with OIDC | Must match what's registered with your provider |
+| `ALLOWED_OIDC_SUBJECT` | with OIDC | Only this `sub` claim may sign in (either this or `ALLOWED_OIDC_EMAIL`) |
+| `ALLOWED_OIDC_EMAIL` | with OIDC | Only this email may sign in |
 | `ANTHROPIC_API_KEY` | conditional | Required only when Settings → Authentication is set to "Anthropic API key". Leave unset to use your Claude Code login. |
 | `DATABASE_PATH` | no | Default: `/app/data/boardroom.db` in Docker, `./data/boardroom.db` locally |
 | `AGENT_WORKER_SOCKET` | no | Unix socket path for Next.js ↔ worker RPC. Default: `/tmp/boardroom-agent.sock` in Docker |
 | `PORT` | no | Default: `3000` |
+
+You must configure **at least one** sign-in method: either `BOARDROOM_USERNAME` + `BOARDROOM_PASSWORD`, or the full set of `OIDC_*` vars + one `ALLOWED_OIDC_*`. Both can be enabled at the same time.
 
 ## Authentication modes
 

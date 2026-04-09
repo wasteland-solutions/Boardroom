@@ -1,22 +1,16 @@
-import { auth } from '@/lib/auth';
-import { NextResponse } from 'next/server';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-  // Public paths: auth routes and the sign-in page itself.
-  if (pathname.startsWith('/api/auth') || pathname === '/signin') {
-    return NextResponse.next();
-  }
-  if (!req.auth) {
-    const signInUrl = new URL('/signin', req.nextUrl.origin);
-    return NextResponse.redirect(signInUrl);
-  }
-  return NextResponse.next();
-});
+// Edge-runtime middleware. Uses the edge-safe auth config — the full Auth.js
+// instance (which imports node:crypto via the Credentials provider) is only
+// loaded by route handlers and server components, not here.
+export const { auth: middleware } = NextAuth(authConfig);
+
+export default middleware;
 
 export const config = {
   matcher: [
-    // Match everything except Next internals and static files.
+    // Skip Next internals and static files.
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
