@@ -1,0 +1,16 @@
+{
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@/agent/*", "../agent/*", "../../agent/*", "src/agent/*"],
+            "message": "src/app/** and src/components/** must not import from src/agent/**. Use src/lib/agent-client.ts instead."
+          }
+        ]
+      }
+    ]
+  }
+}

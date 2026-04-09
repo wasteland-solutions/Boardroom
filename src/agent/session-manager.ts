@@ -1,0 +1,51 @@
+import { ActiveQuery, type StartOptions } from './sdk-runner';
+import type { PermissionBroker } from './permission-broker';
+import type { StreamFrame } from '../lib/types';
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+
+export class SessionManager {
+  private sessions = new Map<string, ActiveQuery>();
+  private sweepInterval: NodeJS.Timeout;
+
+  constructor(
+    private readonly broker: PermissionBroker,
+    private readonly emit: (conversationId: string, frame: StreamFrame) => void,
+  ) {
+    this.sweepInterval = setInterval(() => this.sweepIdle(), 60_000).unref();
+  }
+
+  get(conversationId: string): ActiveQuery | undefined {
+    return this.sessions.get(conversationId);
+  }
+
+  startOrResume(opts: StartOptions): ActiveQuery {
+    const existing = this.sessions.get(opts.conversationId);
+    if (existing) return existing;
+    const session = new ActiveQuery(opts, this.broker, this.emit);
+    this.sessions.set(opts.conversationId, session);
+    return session;
+  }
+
+  close(conversationId: string) {
+    const s = this.sessions.get(conversationId);
+    if (!s) return;
+    s.close();
+    this.sessions.delete(conversationId);
+  }
+
+  closeAll() {
+    clearInterval(this.sweepInterval);
+    for (const [id] of this.sessions) this.close(id);
+  }
+
+  private sweepIdle() {
+    const now = Date.now();
+    for (const [id, session] of this.sessions) {
+      if (now - session.lastActivity > IDLE_TIMEOUT_MS) {
+        console.log(`[session-manager] idle-timeout ${id}`);
+        this.close(id);
+      }
+    }
+  }
+}

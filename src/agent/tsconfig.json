@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2022",
+    "outDir": "../../dist/agent",
+    "noEmit": false,
+    "jsx": "preserve",
+    "types": ["node"],
+    "plugins": []
+  },
+  "include": ["./**/*.ts", "../lib/schema.ts", "../lib/types.ts"],
+  "exclude": []
+}
