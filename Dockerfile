@@ -46,6 +46,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV DATABASE_PATH=/app/data/boardroom.db
 ENV AGENT_WORKER_SOCKET=/tmp/boardroom-agent.sock
+ENV AGENT_WORKER_WS_PORT=8099
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
@@ -70,7 +71,7 @@ RUN mkdir -p /app/data /workspaces \
 
 USER boardroom
 VOLUME ["/app/data", "/workspaces"]
-EXPOSE 3000
+EXPOSE 3000 8099
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "scripts/start.mjs"]

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Conversation, Cwd } from '@/lib/schema';
 import { DEFAULT_MODELS, type ModelId, type PermissionMode, type StreamFrame } from '@/lib/types';
+import { TerminalPanel } from './TerminalPanel';
 
 type StoredMessage = {
   id: string;
@@ -48,6 +49,7 @@ export function ChatShell({
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
+  const [showTerminal, setShowTerminal] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -245,6 +247,7 @@ export function ChatShell({
     <div className="app">
       {sidebar}
       <main className="main-panel">
+        <div className={`workspace-split${showTerminal ? ' with-terminal' : ''}`}>
         <section className="chat">
           <header className="chat-header">
             <div>
@@ -255,9 +258,18 @@ export function ChatShell({
                 <span className="chip">{current.cwd}</span>
               </div>
             </div>
-            <button className="btn stop" onClick={stop}>
-              Stop
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className={`btn ghost${showTerminal ? ' active' : ''}`}
+                onClick={() => setShowTerminal((v) => !v)}
+                title="Toggle terminal"
+              >
+                {showTerminal ? 'Hide terminal' : 'Terminal'}
+              </button>
+              <button className="btn stop" onClick={stop}>
+                Stop
+              </button>
+            </div>
           </header>
           <div className="messages" ref={messagesRef}>
             {blocks.length === 0 && (
@@ -285,6 +297,8 @@ export function ChatShell({
             </button>
           </div>
         </section>
+        {showTerminal && <TerminalPanel conversationId={current.id} />}
+        </div>
         <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'right' }}>
           last seq: {lastSeq}
         </div>

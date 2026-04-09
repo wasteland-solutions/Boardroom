@@ -54,6 +54,7 @@ function applyCredentials(opts: {
 import { RpcServer } from './rpc';
 import { SessionManager } from './session-manager';
 import { PermissionBroker } from './permission-broker';
+import { TerminalWsServer } from './ws-server';
 import type { StreamFrame, WorkerRpcRequest } from '../lib/types';
 
 const socketPath = process.env.AGENT_WORKER_SOCKET ?? './.agent.sock';
@@ -139,9 +140,20 @@ async function main() {
   await rpc.listen();
   console.log(`[boardroom-agent] listening on ${socketPath}`);
 
+  // Terminal WebSocket server — separate port so it can be exposed in
+  // docker-compose independently. Default 8099.
+  const wsPort = Number(process.env.AGENT_WORKER_WS_PORT ?? 8099);
+  const wsServer = new TerminalWsServer(wsPort);
+  try {
+    await wsServer.listen();
+  } catch (err) {
+    console.error('[boardroom-agent] failed to start terminal WebSocket:', err);
+  }
+
   const shutdown = (signal: string) => {
     console.log(`[boardroom-agent] ${signal} received, shutting down...`);
     sessions.closeAll();
+    wsServer.close();
     rpc.close();
     process.exit(0);
   };
