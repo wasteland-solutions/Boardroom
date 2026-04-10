@@ -517,7 +517,17 @@ function spawnSshClaude(
   // Build the remote bootstrap script. Same two-shell dance: bash
   // --noprofile --norc outer shell (silent stdout) captures PATH from
   // a bash -lic subshell, then cd + exec claude with the SDK's args.
-  const argsString = sdkOpts.args.map((a) => shq(a)).join(' ');
+  //
+  // The SDK passes args as ['/local/path/to/cli.js', '--flags...']
+  // because it normally spawns `node cli.js --flags`. We only want
+  // the CLI flags for the remote — the entry-script path is a local
+  // path that doesn't exist on the remote box. Filter out anything
+  // that looks like a local script path (starts with / and ends with
+  // .js/.mjs) so we just get the --flag arguments.
+  const cliFlags = sdkOpts.args.filter(
+    (a) => !(/^\//.test(a) && /\.(m?js|cjs)$/.test(a)),
+  );
+  const argsString = cliFlags.map((a) => shq(a)).join(' ');
   const remoteScript = [
     'set -e',
     '',
