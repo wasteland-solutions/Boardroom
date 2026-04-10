@@ -424,11 +424,22 @@ export function ChatShell({
 
   const stop = useCallback(async () => {
     if (!current) return;
-    await fetch(`/api/input/${current.id}`, {
+    const res = await fetch(`/api/input/${current.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'interrupt' }),
     });
+    // Always inject a visible system row so the user knows Stop did
+    // something (or that there was nothing running to stop).
+    setBlocks((prev) => [
+      ...prev,
+      {
+        kind: 'system' as const,
+        id: `stop-${Date.now()}`,
+        seq: prev.length + 1,
+        text: res.ok ? 'Stopped.' : 'Stop failed.',
+      },
+    ]);
   }, [current]);
 
   const resolvePermission = useCallback(

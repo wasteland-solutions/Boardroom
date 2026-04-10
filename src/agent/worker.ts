@@ -123,7 +123,8 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
 
     case 'interrupt': {
       const session = sessions.get(req.conversationId);
-      if (!session) throw new Error('no active session');
+      if (!session) return { ok: true, noSession: true };
+      if (session.isDead) return { ok: true, wasDead: true };
       await session.interrupt();
       return { ok: true };
     }
