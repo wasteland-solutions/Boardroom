@@ -35,10 +35,10 @@ Open <http://localhost:3000>, sign in, go to **Settings** to paste your API key(
 ### Without Docker
 
 ```bash
-pnpm install
+npm install
 cp .env.example .env    # set AUTH_SECRET + sign-in credentials
-pnpm db:migrate
-pnpm dev
+npm run db:migrate
+npm run dev
 ```
 
 Runs Next.js + the agent worker together on port 3000.
