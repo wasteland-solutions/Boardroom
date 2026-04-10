@@ -193,17 +193,19 @@ If you have a need to use the local account on the remote (e.g. you want billing
 
 ### Giving the agent a custom identity / project context
 
-Boardroom passes `settingSources: ['user', 'project', 'local']` to the SDK — the same set the interactive `claude` CLI loads by default. So everything in your normal claude memory tree applies automatically:
+Boardroom passes `settingSources: ['project']` to the SDK — **only the workspace's own files**, not the user's `~/.claude/`. This is a deliberate scope choice: each Boardroom workspace is meant to be self-contained, so the same workspace mounted on a different host gives you the same agent regardless of whose `~/.claude/CLAUDE.md` lives there. If you want personal global rules they should live in the workspace, not in your home dir.
 
-| Source | What it loads | Where to put it |
-|---|---|---|
-| `user` | Your global identity, conventions, personal slash commands, custom agents, MCP servers, hooks | `~/.claude/CLAUDE.md`, `~/.claude/agents/`, `~/.claude/commands/`, `~/.claude/skills/`, `~/.claude/settings.json` |
-| `project` | Per-project rules, project-level subagents, project hooks | `<workspace>/CLAUDE.md`, `<workspace>/.claude/`, walked up to the workspace root |
-| `local` | Machine-local overrides (typically gitignored) | `<workspace>/.claude/settings.local.json` |
+What gets loaded for each workspace (walked up from the cwd to the workspace root):
 
-**For SSH workspaces** the *remote* user's `~/.claude/` is loaded — the wrapper cd's into the remote box and claude reads from its own home there. So if `ssh larry` and running `claude` interactively gives you a particular agent identity, Boardroom now gives you the same one.
+- `CLAUDE.md` — the agent's persistent memory / identity / conventions
+- `.claude/settings.json` — project settings + hooks
+- `.claude/agents/*` — custom subagents
+- `.claude/commands/*` — custom slash commands
+- `.claude/skills/*` — custom skills
 
-You can *also* give a conversation a custom personality directly in Boardroom without writing any files: the **New conversation** form has a "Custom instructions" textarea that gets appended to claude_code's preset system prompt for that conversation only. Useful when you want one-off agents (e.g. "review this PR as a security pedant") without polluting your global `~/.claude/CLAUDE.md`.
+**For SSH workspaces** all of the above are loaded from the **remote** workspace, not from your local Boardroom host. The wrapper cd's into the remote box and claude reads from there.
+
+You can *also* give a conversation a custom personality directly in Boardroom without writing any files: the **New conversation** form has a "Custom instructions" textarea that gets appended to claude_code's preset system prompt for that conversation only. Useful when you want one-off agents (e.g. "review this PR as a security pedant") without committing a CLAUDE.md.
 
 If you'd rather use a `CLAUDE.md` for a specific project, drop it in the workspace root:
 

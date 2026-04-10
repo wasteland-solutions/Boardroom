@@ -595,24 +595,14 @@ export function ChatShell({
                 {showTerminal ? 'Hide terminal' : 'Terminal'}
               </button>
               {current.archived ? (
-                <>
-                  <button
-                    className="btn ghost"
-                    onClick={() => setArchived(false)}
-                    disabled={busy}
-                    title="Move back to active conversations"
-                  >
-                    Unarchive
-                  </button>
-                  <button
-                    className="btn stop"
-                    onClick={deleteConversation}
-                    disabled={busy}
-                    title="Permanently delete the conversation and its Claude Code session file"
-                  >
-                    Delete
-                  </button>
-                </>
+                <button
+                  className="btn ghost"
+                  onClick={() => setArchived(false)}
+                  disabled={busy}
+                  title="Move back to active conversations"
+                >
+                  Unarchive
+                </button>
               ) : (
                 <button
                   className="btn ghost"
@@ -623,6 +613,14 @@ export function ChatShell({
                   Archive
                 </button>
               )}
+              <button
+                className="btn stop"
+                onClick={deleteConversation}
+                disabled={busy}
+                title="Permanently delete the conversation and its Claude Code session file"
+              >
+                Delete
+              </button>
               <button className="btn stop" onClick={stop}>
                 Stop
               </button>
