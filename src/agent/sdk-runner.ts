@@ -117,7 +117,18 @@ export class ActiveQuery {
         permissionMode: opts.permissionMode === 'ask' ? 'default' : opts.permissionMode,
         canUseTool,
         mcpServers: opts.mcpServers,
-        settingSources: ['project'],
+        // Match what the interactive `claude` CLI does by default:
+        // load all three filesystem setting sources so the agent picks
+        // up the user's CLAUDE.md, project-level CLAUDE.md, custom
+        // agents/commands/skills under .claude/, and any local
+        // overrides. With just ['project'] the SDK skipped ~/.claude/
+        // entirely, which is where most people store their global
+        // identity / conventions files — so the agent felt generic
+        // from Boardroom but felt right when run via `ssh host claude`
+        // directly. For SSH workspaces this loads the *remote* user's
+        // ~/.claude/ since the wrapper cd's into the remote box and
+        // claude reads from its own home there.
+        settingSources: ['user', 'project', 'local'],
         systemPrompt: systemPromptOption,
         tools: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
