@@ -920,7 +920,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
               const p = e.target.value as Provider;
               setProvider(p);
               // Switch to a default model for the new provider.
-              setModel(p === 'codex' ? 'o4-mini' : 'claude-opus-4-6');
+              setModel(p === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6');
             }}
           >
             <option value="claude">Claude Code</option>

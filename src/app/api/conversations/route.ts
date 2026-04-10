@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       title: parsed.data.title ?? null,
       cwd: parsed.data.cwd,
       provider,
-      model: parsed.data.model ?? (provider === 'codex' ? 'o4-mini' : settings.defaultModel),
+      model: parsed.data.model ?? (provider === 'codex' ? 'gpt-5.3-codex' : settings.defaultModel),
       permissionMode: (parsed.data.permissionMode ?? settings.defaultPermissionMode) as PermissionMode,
       sdkSessionId: null,
       createdAt: now,

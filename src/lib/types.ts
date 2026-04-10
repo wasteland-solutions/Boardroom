@@ -8,14 +8,8 @@ export type ModelId =
   | 'claude-opus-4-6'
   | 'claude-sonnet-4-6'
   | 'claude-haiku-4-5'
-  | 'o4-mini'
-  | 'o3'
-  | 'o3-pro'
-  | 'gpt-4.1'
-  | 'gpt-4.1-mini'
-  | 'gpt-4.1-nano'
-  | 'gpt-4o'
-  | 'gpt-4o-mini';
+  | 'gpt-5.3-codex'
+  | 'gpt-5.4';
 
 // `api_key`     — use the ANTHROPIC_API_KEY env var. Billed to your Anthropic
 //                 Console account.
@@ -33,14 +27,8 @@ export const CLAUDE_MODELS: ModelId[] = [
 ];
 
 export const CODEX_MODELS: ModelId[] = [
-  'o4-mini',
-  'o3',
-  'o3-pro',
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'gpt-4.1-nano',
-  'gpt-4o',
-  'gpt-4o-mini',
+  'gpt-5.3-codex',
+  'gpt-5.4',
 ];
 
 export const ALL_MODELS: ModelId[] = [...CLAUDE_MODELS, ...CODEX_MODELS];
