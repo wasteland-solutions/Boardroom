@@ -474,7 +474,10 @@ export function ChatShell({
   );
 
   const deleteConversation = useCallback(async () => {
-    if (!current || busy) return;
+    if (!current) return;
+    // Don't check `busy` — the delete button should always work even
+    // if a previous async operation left busy stuck true. Delete is
+    // a terminal action and the confirm() dialog is guard enough.
     const ok = window.confirm(
       `Permanently delete "${current.title ?? 'Untitled'}"?\n\n` +
         'This removes the conversation from Boardroom AND deletes the underlying ' +
@@ -494,7 +497,7 @@ export function ChatShell({
     } finally {
       setBusy(false);
     }
-  }, [current, busy, activeConvs, router]);
+  }, [current, activeConvs, router]);
 
   const sidebar = useMemo(
     () => (

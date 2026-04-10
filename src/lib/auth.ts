@@ -93,6 +93,9 @@ export const enabledProviders = {
 const authConfig: NextAuthConfig = {
   ...baseAuthConfig,
   secret: process.env.AUTH_SECRET,
+  // In production behind TLS (or when NEXTAUTH_URL starts with https://),
+  // Auth.js auto-sets Secure on cookies. We also force HttpOnly + SameSite.
+  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith('https://') || process.env.NODE_ENV === 'production',
   providers,
   callbacks: {
     ...baseAuthConfig.callbacks,

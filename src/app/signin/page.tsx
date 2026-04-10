@@ -1,6 +1,7 @@
 import { AuthError } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { enabledProviders, signIn } from '@/lib/auth';
+import { isRateLimited } from '@/lib/rate-limit';
 
 export default async function SignInPage({
   searchParams,
@@ -21,6 +22,8 @@ export default async function SignInPage({
             ? 'Wrong username or password.'
             : error === 'oidc'
             ? 'SSO sign-in failed. Check your provider configuration.'
+            : error === 'ratelimit'
+            ? 'Too many attempts. Wait a minute and try again.'
             : 'Sign-in failed. Please try again.'}
         </div>
       )}
@@ -31,6 +34,10 @@ export default async function SignInPage({
             className="signin-form"
             action={async (formData) => {
               'use server';
+              // 5 attempts per 60 seconds.
+              if (isRateLimited('auth:credentials', 5, 60_000)) {
+                redirect(`/signin?error=ratelimit${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`);
+              }
               try {
                 await signIn('credentials', {
                   username: formData.get('username'),
@@ -39,12 +46,8 @@ export default async function SignInPage({
                 });
               } catch (err) {
                 if (err instanceof AuthError) {
-                  // Redirect back to the sign-in page with a query param
-                  // so the error renders inline instead of a raw 500.
                   redirect(`/signin?error=credentials${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`);
                 }
-                // Re-throw non-auth errors (e.g. Next.js redirect errors
-                // which are technically thrown as NEXT_REDIRECT).
                 throw err;
               }
             }}

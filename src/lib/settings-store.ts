@@ -1,6 +1,7 @@
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from './db';
 import { settings } from './schema';
+import { encrypt, decrypt } from './crypto';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -41,8 +42,9 @@ export function getSettings(): AppSettings {
 
   return {
     authMode: parseJson<AuthMode>(KEYS.authMode, DEFAULT_SETTINGS.authMode),
-    anthropicApiKey: parseJson<string>(KEYS.anthropicApiKey, DEFAULT_SETTINGS.anthropicApiKey),
-    claudeCodeOauthToken: parseJson<string>(KEYS.claudeCodeOauthToken, DEFAULT_SETTINGS.claudeCodeOauthToken),
+    // Sensitive values are encrypted at rest; decrypt on read.
+    anthropicApiKey: decrypt(parseJson<string>(KEYS.anthropicApiKey, DEFAULT_SETTINGS.anthropicApiKey)),
+    claudeCodeOauthToken: decrypt(parseJson<string>(KEYS.claudeCodeOauthToken, DEFAULT_SETTINGS.claudeCodeOauthToken)),
     defaultModel: parseJson<ModelId>(KEYS.defaultModel, DEFAULT_SETTINGS.defaultModel),
     defaultPermissionMode: parseJson<PermissionMode>(KEYS.defaultPermissionMode, DEFAULT_SETTINGS.defaultPermissionMode),
     mcpServers: parseJson(KEYS.mcpServers, DEFAULT_SETTINGS.mcpServers),
@@ -66,8 +68,9 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   };
 
   if ('authMode' in patch) upsert(KEYS.authMode, next.authMode);
-  if ('anthropicApiKey' in patch) upsert(KEYS.anthropicApiKey, next.anthropicApiKey);
-  if ('claudeCodeOauthToken' in patch) upsert(KEYS.claudeCodeOauthToken, next.claudeCodeOauthToken);
+  // Encrypt sensitive values before writing to SQLite.
+  if ('anthropicApiKey' in patch) upsert(KEYS.anthropicApiKey, encrypt(next.anthropicApiKey));
+  if ('claudeCodeOauthToken' in patch) upsert(KEYS.claudeCodeOauthToken, encrypt(next.claudeCodeOauthToken));
   if ('defaultModel' in patch) upsert(KEYS.defaultModel, next.defaultModel);
   if ('defaultPermissionMode' in patch) upsert(KEYS.defaultPermissionMode, next.defaultPermissionMode);
   if ('mcpServers' in patch) upsert(KEYS.mcpServers, next.mcpServers);

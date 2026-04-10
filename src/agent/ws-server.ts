@@ -32,7 +32,26 @@ export class TerminalWsServer {
       res.end('Boardroom agent WebSocket endpoint — use /terminal\n');
     });
 
-    this.wss = new WebSocketServer({ server: this.http, path: '/terminal' });
+    this.wss = new WebSocketServer({
+      server: this.http,
+      path: '/terminal',
+      // Validate the Origin header to prevent cross-site WebSocket
+      // hijacking. Only connections from the same host are allowed.
+      verifyClient: (info: { origin?: string; req: { headers: Record<string, string | string[] | undefined> } }) => {
+        const origin = info.origin || (typeof info.req.headers.origin === 'string' ? info.req.headers.origin : undefined);
+        if (!origin) return true; // Non-browser clients (curl, node) don't send Origin
+        try {
+          const url = new URL(origin);
+          const hostHeader = typeof info.req.headers.host === 'string' ? info.req.headers.host : '';
+          const host = hostHeader.split(':')[0];
+          // Allow same-hostname connections (any port — the WS port differs
+          // from the Next.js port by design).
+          return url.hostname === host || url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+        } catch {
+          return false;
+        }
+      },
+    });
 
     this.wss.on('connection', (ws) => {
       this.handleConnection(ws);

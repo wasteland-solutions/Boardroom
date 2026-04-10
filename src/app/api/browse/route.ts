@@ -42,6 +42,12 @@ export async function POST(req: Request) {
   if (!isAbsolute(requestedPath)) {
     return NextResponse.json({ error: 'path must be absolute' }, { status: 400 });
   }
+  // Reject paths that could be used for command injection in the SSH
+  // code path. Single quotes are our shell-quoting mechanism; backticks,
+  // $(), and newlines could escape the quoting context.
+  if (/[`\n\r$]/.test(requestedPath)) {
+    return NextResponse.json({ error: 'path contains disallowed characters' }, { status: 400 });
+  }
 
   if (parsed.data.host && parsed.data.host.trim()) {
     return browseRemote(parsed.data.host.trim(), requestedPath);
