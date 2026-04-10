@@ -17,6 +17,7 @@ const KEYS = {
   defaultPermissionMode: 'default_permission_mode',
   mcpServers: 'mcp_servers',
   permissionTimeoutMs: 'permission_timeout_ms',
+  workspaceMemoryFiles: 'workspace_memory_files',
 } as const;
 
 export function getSettings(): AppSettings {
@@ -46,6 +47,7 @@ export function getSettings(): AppSettings {
     defaultPermissionMode: parseJson<PermissionMode>(KEYS.defaultPermissionMode, DEFAULT_SETTINGS.defaultPermissionMode),
     mcpServers: parseJson(KEYS.mcpServers, DEFAULT_SETTINGS.mcpServers),
     permissionTimeoutMs: parseJson(KEYS.permissionTimeoutMs, DEFAULT_SETTINGS.permissionTimeoutMs),
+    workspaceMemoryFiles: parseJson<string[]>(KEYS.workspaceMemoryFiles, DEFAULT_SETTINGS.workspaceMemoryFiles),
   };
 }
 
@@ -70,6 +72,7 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   if ('defaultPermissionMode' in patch) upsert(KEYS.defaultPermissionMode, next.defaultPermissionMode);
   if ('mcpServers' in patch) upsert(KEYS.mcpServers, next.mcpServers);
   if ('permissionTimeoutMs' in patch) upsert(KEYS.permissionTimeoutMs, next.permissionTimeoutMs);
+  if ('workspaceMemoryFiles' in patch) upsert(KEYS.workspaceMemoryFiles, next.workspaceMemoryFiles);
 
   return next;
 }

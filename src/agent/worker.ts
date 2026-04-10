@@ -90,6 +90,7 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
         mcpServers: req.mcpServers,
         permissionTimeoutMs: req.permissionTimeoutMs,
         systemPromptAppend: req.systemPromptAppend,
+        workspaceMemoryFiles: req.workspaceMemoryFiles,
       });
       return { conversationId: session.conversationId };
     }

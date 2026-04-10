@@ -40,6 +40,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       anthropicApiKey: appSettings.anthropicApiKey,
       claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
       systemPromptAppend: conv.systemPromptAppend,
+      workspaceMemoryFiles: appSettings.workspaceMemoryFiles,
     })
     .catch(() => {
       // best-effort — fall through and return an empty list

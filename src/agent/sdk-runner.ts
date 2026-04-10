@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { persistence } from './persistence';
 import type { PermissionBroker } from './permission-broker';
@@ -25,7 +27,16 @@ export type StartOptions = {
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number;
   systemPromptAppend: string | null;
+  // Filenames at the workspace root that we read at session start and
+  // prepend to the system prompt. Defaults are set in DEFAULT_SETTINGS;
+  // user can override in Settings.
+  workspaceMemoryFiles: string[];
 };
+
+// Cap on combined memory file content (in characters, not tokens) so a
+// runaway file doesn't blow out the system prompt or wedge the SSH
+// transport. ~256KB ≈ ~65k tokens; well under any model's context.
+const MAX_MEMORY_BYTES = 256 * 1024;
 
 // One ActiveQuery per conversation. Owns the bounded async queue that feeds
 // SDKUserMessage's into the SDK, the reader loop that drains SDKMessages out,
@@ -92,18 +103,25 @@ export class ActiveQuery {
       sshEnv.CLAUDE_CODE_OAUTH_TOKEN = undefined;
     }
 
-    // Build the system prompt. We always start from the claude_code
-    // preset (so the agent has its full toolbelt + behavior baked in)
-    // and then append the user's per-conversation custom instructions
-    // if they set any. This is the in-Boardroom alternative to
-    // dropping a CLAUDE.md on the host — the SDK option exists exactly
-    // for this case.
+    // Load any workspace-root memory files (CLAUDE.md, SOUL.md,
+    // IDENTITY.md, TOOLS.md, MEMORY.md, AGENTS.md, ... — configurable
+    // in Settings). claude-code's auto-discovery only knows about
+    // CLAUDE.md, so anything in the user's custom convention has to
+    // be loaded by us and forwarded via the systemPrompt.append SDK
+    // option. Per-conversation custom instructions stack on top of
+    // the loaded memory (memory first, then user override).
+    const workspaceMemory = loadWorkspaceMemory(parsed, opts.workspaceMemoryFiles);
+    const promptParts: string[] = [];
+    if (workspaceMemory) promptParts.push(workspaceMemory);
+    if (opts.systemPromptAppend && opts.systemPromptAppend.trim()) {
+      promptParts.push(opts.systemPromptAppend.trim());
+    }
     const systemPromptOption: { type: 'preset'; preset: 'claude_code'; append?: string } = {
       type: 'preset',
       preset: 'claude_code',
     };
-    if (opts.systemPromptAppend && opts.systemPromptAppend.trim()) {
-      systemPromptOption.append = opts.systemPromptAppend.trim();
+    if (promptParts.length > 0) {
+      systemPromptOption.append = promptParts.join('\n\n');
     }
 
     this.q = query({
@@ -527,6 +545,132 @@ function buildSshChildEnv(
     }
   }
   return out;
+}
+
+// Read configured workspace memory files (e.g. CLAUDE.md, SOUL.md,
+// IDENTITY.md) from the workspace root and concatenate their contents
+// into a single string with `===== <filename> =====` headers between
+// them. Returns the empty string when nothing is found.
+//
+// For local workspaces this is a straight `fs.readFileSync` per file.
+// For SSH workspaces we batch all the file reads into a single ssh
+// invocation that uses a tiny remote bash loop to print existing files
+// with our header markers — one connection (warm via ControlMaster),
+// no extra round-trips.
+//
+// Anything that fails for any reason returns an empty string. We never
+// throw — bad memory files should not block the conversation from
+// starting.
+function loadWorkspaceMemory(
+  workspace: ReturnType<typeof parseWorkspacePath>,
+  files: string[],
+): string {
+  if (!files || files.length === 0) return '';
+
+  // Reject anything with path separators or upward traversal — we only
+  // load files at the workspace root, never wander into subdirs.
+  const safeFiles = files.filter(
+    (f) => f && !f.includes('/') && !f.includes('\\') && !f.includes('..'),
+  );
+  if (safeFiles.length === 0) return '';
+
+  if (workspace.kind === 'local') {
+    return loadLocalMemory(workspace.path, safeFiles);
+  }
+  if (workspace.kind === 'remote') {
+    return loadRemoteMemory(workspace, safeFiles);
+  }
+  return '';
+}
+
+function loadLocalMemory(cwd: string, files: string[]): string {
+  const sections: string[] = [];
+  let total = 0;
+  for (const name of files) {
+    const path = join(cwd, name);
+    if (!existsSync(path)) continue;
+    let content: string;
+    try {
+      content = readFileSync(path, 'utf8');
+    } catch (err) {
+      console.warn(`[workspace-memory] failed to read ${path}:`, err);
+      continue;
+    }
+    // Stop adding once we'd exceed the budget; the SDK has limits and
+    // dragging in a 5MB file would just OOM the prompt.
+    if (total + content.length > MAX_MEMORY_BYTES) {
+      console.warn(
+        `[workspace-memory] truncating after ${name} — combined memory > ${MAX_MEMORY_BYTES} bytes`,
+      );
+      break;
+    }
+    sections.push(`===== ${name} =====\n${content.trim()}`);
+    total += content.length;
+  }
+  return sections.join('\n\n');
+}
+
+function loadRemoteMemory(workspace: RemoteWorkspace, files: string[]): string {
+  // Build a tiny remote bash script that walks the configured filename
+  // list, prints a marker before each existing file, then dumps it.
+  // The shell-quote the filenames so weird chars in user-configured
+  // names can't escape.
+  const quoted = files.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(' ');
+  const remoteScript =
+    `cd '${workspace.path.replace(/'/g, "'\\''")}' 2>/dev/null || exit 0; ` +
+    `for f in ${quoted}; do ` +
+    `  if [ -f "$f" ]; then ` +
+    `    printf '<<<BR_FILE:%s>>>\\n' "$f"; ` +
+    `    cat "$f"; ` +
+    `    printf '\\n<<<BR_END>>>\\n'; ` +
+    `  fi; ` +
+    `done`;
+
+  const sshArgs = [
+    '-o', 'BatchMode=yes',
+    '-o', 'ConnectTimeout=10',
+    '-o', 'ServerAliveInterval=30',
+    '-o', 'ControlMaster=auto',
+    '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
+    '-o', 'ControlPersist=10m',
+  ];
+  if (workspace.port) sshArgs.push('-p', String(workspace.port));
+  sshArgs.push(sshTarget(workspace), '--', remoteScript);
+
+  let stdout: Buffer;
+  try {
+    stdout = execFileSync('ssh', sshArgs, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: MAX_MEMORY_BYTES * 2,
+      timeout: 15_000,
+    });
+  } catch (err) {
+    console.warn(
+      `[workspace-memory] ssh-cat failed for ${sshTarget(workspace)}:${workspace.path}:`,
+      (err as Error).message,
+    );
+    return '';
+  }
+
+  const text = stdout.toString('utf8');
+  const sections: string[] = [];
+  let total = 0;
+  // Parse <<<BR_FILE:name>>>...<<<BR_END>>> blocks.
+  const re = /<<<BR_FILE:([^>]+)>>>\n([\s\S]*?)\n<<<BR_END>>>/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const name = match[1];
+    const body = match[2];
+    if (total + body.length > MAX_MEMORY_BYTES) {
+      console.warn(
+        `[workspace-memory] truncating remote memory after ${name} — combined > ${MAX_MEMORY_BYTES} bytes`,
+      );
+      break;
+    }
+    sections.push(`===== ${name} =====\n${body.trim()}`);
+    total += body.length;
+  }
+  return sections.join('\n\n');
 }
 
 // Convert raw SDK errors into user-facing message strings. Most SDK errors

@@ -21,6 +21,9 @@ export function SettingsForm({
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [mcpText, setMcpText] = useState(JSON.stringify(initialSettings.mcpServers, null, 2));
   const [mcpError, setMcpError] = useState<string | null>(null);
+  const [memoryFilesText, setMemoryFilesText] = useState(
+    initialSettings.workspaceMemoryFiles.join('\n'),
+  );
   const [cwdList, setCwdList] = useState<Cwd[]>(initialCwds);
   const [newHost, setNewHost] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -42,6 +45,11 @@ export function SettingsForm({
       return;
     }
     try {
+      const memoryFiles = memoryFilesText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'));
+
       const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -53,6 +61,7 @@ export function SettingsForm({
           defaultPermissionMode: settings.defaultPermissionMode,
           mcpServers: parsedMcp,
           permissionTimeoutMs: settings.permissionTimeoutMs,
+          workspaceMemoryFiles: memoryFiles,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -289,6 +298,30 @@ export function SettingsForm({
           onClose={() => setBrowserOpen(false)}
         />
       )}
+
+      <section>
+        <h2>Workspace memory files</h2>
+        <label>
+          <span>Filenames at the workspace root that Boardroom reads at session start</span>
+          <textarea
+            value={memoryFilesText}
+            onChange={(e) => setMemoryFilesText(e.target.value)}
+            spellCheck={false}
+            rows={8}
+            placeholder={'CLAUDE.md\nSOUL.md\nIDENTITY.md\nTOOLS.md\nMEMORY.md\nAGENTS.md'}
+          />
+          <span className="hint">
+            One filename per line. Files at <code>&lt;workspace&gt;/&lt;name&gt;</code> are read on
+            every session start and prepended to claude_code&apos;s system prompt via the SDK&apos;s{' '}
+            <code>systemPrompt.append</code> option. Lets you keep custom memory conventions
+            (SOUL.md, IDENTITY.md, …) that claude-code&apos;s built-in CLAUDE.md auto-discovery
+            doesn&apos;t know about. Read locally for local workspaces, via <code>ssh + cat</code>{' '}
+            (over the existing ControlMaster connection) for remote ones. Lines starting with{' '}
+            <code>#</code> are ignored. Combined content is capped at 256KB to avoid blowing
+            out the system prompt.
+          </span>
+        </label>
+      </section>
 
       <section>
         <h2>MCP servers (JSON)</h2>

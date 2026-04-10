@@ -195,7 +195,11 @@ If you have a need to use the local account on the remote (e.g. you want billing
 
 Boardroom passes `settingSources: ['project']` to the SDK — **only the workspace's own files**, not the user's `~/.claude/`. This is a deliberate scope choice: each Boardroom workspace is meant to be self-contained, so the same workspace mounted on a different host gives you the same agent regardless of whose `~/.claude/CLAUDE.md` lives there. If you want personal global rules they should live in the workspace, not in your home dir.
 
-What gets loaded for each workspace (walked up from the cwd to the workspace root):
+There are **two layers** of context loading, both scoped to the workspace:
+
+#### 1. Claude Code's built-in auto-discovery (driven by `settingSources: ['project']`)
+
+Walked up from the cwd to the workspace root by claude-code itself:
 
 - `CLAUDE.md` — the agent's persistent memory / identity / conventions
 - `.claude/settings.json` — project settings + hooks
@@ -203,7 +207,22 @@ What gets loaded for each workspace (walked up from the cwd to the workspace roo
 - `.claude/commands/*` — custom slash commands
 - `.claude/skills/*` — custom skills
 
-**For SSH workspaces** all of the above are loaded from the **remote** workspace, not from your local Boardroom host. The wrapper cd's into the remote box and claude reads from there.
+#### 2. Boardroom's "workspace memory files"
+
+Configured in **Settings → Workspace memory files**, default list:
+
+```
+CLAUDE.md
+SOUL.md
+IDENTITY.md
+TOOLS.md
+MEMORY.md
+AGENTS.md
+```
+
+Boardroom reads any of these that exist at the workspace root and prepends their contents to claude_code's system prompt via the SDK's `systemPrompt: { append: ... }` option. This is how you give an agent a custom identity using filenames claude-code's auto-discovery doesn't know about. The list is editable per-installation (one filename per line in Settings).
+
+**For SSH workspaces** both layers read from the **remote** workspace, not from your local Boardroom host. claude-code's auto-discovery happens because the wrapper cd's into the remote box; Boardroom's memory loader runs `ssh + cat` over the existing ControlMaster connection. Combined memory file content is capped at 256KB so a runaway file can't blow out the prompt.
 
 You can *also* give a conversation a custom personality directly in Boardroom without writing any files: the **New conversation** form has a "Custom instructions" textarea that gets appended to claude_code's preset system prompt for that conversation only. Useful when you want one-off agents (e.g. "review this PR as a security pedant") without committing a CLAUDE.md.
 
