@@ -162,3 +162,11 @@ export function describeWorkspace(input: string): string {
   if (parsed.kind === 'local') return parsed.path;
   return input;
 }
+
+// Convert an absolute path into the slug claude-code uses to namespace
+// session files: every `/` is replaced with `-`. So `/Users/andre/foo`
+// becomes `-Users-andre-foo`. The session file lives at
+// `~/.claude/projects/{slug}/{sessionId}.jsonl`.
+export function claudeProjectSlug(absPath: string): string {
+  return absPath.replace(/\//g, '-');
+}

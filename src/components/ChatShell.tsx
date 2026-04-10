@@ -203,6 +203,29 @@ export function ChatShell({
     [current, busy, activeConvs, router],
   );
 
+  const deleteConversation = useCallback(async () => {
+    if (!current || busy) return;
+    const ok = window.confirm(
+      `Permanently delete "${current.title ?? 'Untitled'}"?\n\n` +
+        'This removes the conversation from Boardroom AND deletes the underlying ' +
+        'Claude Code session file from disk. The conversation cannot be resumed.',
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/conversations/${current.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      const next = activeConvs.find((c) => c.id !== current.id);
+      router.push(next ? `/c/${next.id}` : '/c/new');
+      router.refresh();
+    } catch (err) {
+      console.error('[delete]', err);
+      window.alert('Delete failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  }, [current, busy, activeConvs, router]);
+
   const sidebar = useMemo(
     () => (
       <aside className="sidebar">
@@ -333,14 +356,24 @@ export function ChatShell({
                 {showTerminal ? 'Hide terminal' : 'Terminal'}
               </button>
               {current.archived ? (
-                <button
-                  className="btn ghost"
-                  onClick={() => setArchived(false)}
-                  disabled={busy}
-                  title="Move back to active conversations"
-                >
-                  Unarchive
-                </button>
+                <>
+                  <button
+                    className="btn ghost"
+                    onClick={() => setArchived(false)}
+                    disabled={busy}
+                    title="Move back to active conversations"
+                  >
+                    Unarchive
+                  </button>
+                  <button
+                    className="btn stop"
+                    onClick={deleteConversation}
+                    disabled={busy}
+                    title="Permanently delete the conversation and its Claude Code session file"
+                  >
+                    Delete
+                  </button>
+                </>
               ) : (
                 <button
                   className="btn ghost"

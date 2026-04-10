@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import { promises as fs } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
@@ -6,6 +10,7 @@ import { agentClient } from '@/lib/agent-client';
 import { getDb } from '@/lib/db';
 import { conversations } from '@/lib/schema';
 import { DEFAULT_MODELS, type ModelId } from '@/lib/types';
+import { claudeProjectSlug, parseWorkspacePath, sshTarget } from '@/lib/workspace';
 
 const PatchSchema = z.object({
   title: z.string().max(200).optional(),
@@ -84,7 +89,92 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
 
   const { id } = await ctx.params;
   const db = getDb();
-  db.delete(conversations).where(eq(conversations.id, id)).run();
+
+  // Look up the conversation BEFORE deleting so we can clean up the
+  // backing claude-code session file (local or remote) afterwards.
+  const existing = db.select().from(conversations).where(eq(conversations.id, id)).get();
+  if (!existing) {
+    return NextResponse.json({ ok: true, alreadyGone: true });
+  }
+
+  // Tear down any in-flight worker session + pty for this conversation,
+  // then drop the row (cascades to messages + pending_permissions).
   await agentClient.call({ op: 'close_session', conversationId: id }).catch(() => {});
+  db.delete(conversations).where(eq(conversations.id, id)).run();
+
+  // Best-effort: also remove the on-disk claude-code session transcript
+  // so it can't be resumed by accident. Local conversations have the
+  // file under ~/.claude/projects on the Boardroom host; remote (SSH)
+  // conversations have it on the dev box and require a small ssh + rm.
+  // Failures here are logged but never fail the request — the user
+  // already accepted that the conversation should disappear.
+  if (existing.sdkSessionId) {
+    deleteClaudeSessionFile(existing.cwd, existing.sdkSessionId).catch((err) => {
+      console.warn(`[delete] session file cleanup failed for ${id}:`, err);
+    });
+  }
+
   return NextResponse.json({ ok: true });
+}
+
+// Best-effort removal of the claude-code session transcript for a given
+// (cwd, sdkSessionId) pair. Local cwds → fs.unlink. Remote cwds → ssh +
+// rm with the same ControlMaster pattern as everywhere else. Returns
+// once both attempts have either succeeded or been logged as skipped.
+async function deleteClaudeSessionFile(cwd: string, sdkSessionId: string): Promise<void> {
+  const ws = parseWorkspacePath(cwd);
+
+  if (ws.kind === 'local') {
+    const slug = claudeProjectSlug(ws.path);
+    const file = join(homedir(), '.claude', 'projects', slug, `${sdkSessionId}.jsonl`);
+    try {
+      await fs.unlink(file);
+      console.log(`[delete] removed local session file: ${file}`);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        console.log(`[delete] session file already gone: ${file}`);
+      } else {
+        throw err;
+      }
+    }
+    return;
+  }
+
+  if (ws.kind === 'remote') {
+    const slug = claudeProjectSlug(ws.path);
+    const remoteFile = `~/.claude/projects/${slug}/${sdkSessionId}.jsonl`;
+    const sshArgs = [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=10',
+      '-o', 'ServerAliveInterval=30',
+      '-o', 'ControlMaster=auto',
+      '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
+      '-o', 'ControlPersist=10m',
+    ];
+    if (ws.port) sshArgs.push('-p', String(ws.port));
+    sshArgs.push(sshTarget(ws), '--', `rm -f '${remoteFile.replace(/'/g, "'\\''")}'`);
+
+    await new Promise<void>((resolve) => {
+      const child = spawn('ssh', sshArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+      });
+      child.on('error', (err) => {
+        console.warn(`[delete] ssh rm failed: ${err.message}`);
+        resolve();
+      });
+      child.on('exit', (code) => {
+        if (code === 0) {
+          console.log(`[delete] removed remote session file via ssh: ${remoteFile}`);
+        } else {
+          console.warn(
+            `[delete] ssh rm exited ${code} for ${remoteFile}: ${stderr.trim() || 'no stderr'}`,
+          );
+        }
+        resolve();
+      });
+    });
+  }
 }

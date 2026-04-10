@@ -15,17 +15,45 @@
 //   BOARDROOM_SSH_PORT   ssh port if non-default
 //
 // Authentication: we deliberately do NOT forward any local credentials.
-// The remote `claude` uses whatever auth lives in its own ~/.claude (or
-// the remote's own ANTHROPIC_API_KEY env var, etc.) — exactly as if you'd
-// run `claude` over `ssh` by hand. Run `claude auth login` on the remote
-// once and you're set. This avoids account-mismatch / stale-token / API-
-// key-vs-subscription confusion when the remote is already configured
-// for a different account than the local Boardroom.
+// The remote `claude` uses whatever auth lives in its own ~/.claude (run
+// `claude auth login` on the host once). See README → Auth on the remote
+// host for the rationale.
 //
-// Caveats — see README for the full list:
-//   - claude must be on PATH for the remote login shell.
-//   - The SSH key auth must be non-interactive (BatchMode=yes is set).
-//   - The remote claude version should be compatible with the local SDK.
+// Why this script is so careful about shell setup
+// -----------------------------------------------
+// The Anthropic SDK's stream-json protocol is binary-clean over stdout —
+// any byte that isn't a valid JSON line corrupts the next parse and the
+// SDK throws "Unexpected token … is not valid JSON". So absolutely
+// nothing other than `claude` may write to stdout in this remote pipe.
+//
+// The naive approach `ssh host -- 'bash -lic "exec claude"'` doesn't
+// work because:
+//   1. `bash -lc` (non-interactive) → .bashrc bails on its `case $- in
+//      *i*) ;; *) return;; esac` guard → PATH never picks up nvm/asdf/
+//      ~/.local/bin → claude exits 127.
+//   2. `bash -lic` (interactive) → .bashrc runs in full → PATH is good
+//      → claude is found → BUT now anything in .bashrc that prints to
+//      stdout (p10k instant prompt, fastfetch, completion init scripts,
+//      `echo "Welcome..."`, asdf shim warnings) gets prepended to the
+//      stream-json pipe. SDK sees garbage + JSON, dies.
+//
+// The fix is a two-shell dance:
+//   1. The OUTER shell uses `bash --noprofile --norc -c '...'` so ZERO
+//      init files run on the process whose stdout becomes the SDK's
+//      pipe. No noise.
+//   2. The OUTER shell runs an INNER `bash -lic` subshell *just to read
+//      $PATH*. The inner shell's stdout is captured into a variable —
+//      it never reaches the SDK pipe — so .bashrc can be as noisy as
+//      it wants. We use sentinel strings (BRBEGIN…BREND) to extract
+//      the real PATH from any garbage the inner shell prepended.
+//   3. The outer shell sets PATH from the captured value, cd's into the
+//      workspace, and exec's claude. claude's stdout is the SDK pipe,
+//      pristine.
+//
+// We hand the script to the remote bash via base64 + eval rather than
+// inline single-quoted -c, because nested single-quoted heredocs (-c
+// containing -c containing single-quoted format strings) get
+// unreadable fast.
 
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -50,28 +78,56 @@ function shq(s) {
 const passthroughArgs = process.argv.slice(2);
 const remoteArgString = passthroughArgs.map(shq).join(' ');
 
-// The inner command we want a login shell on the remote to run: cd into
-// the workspace and exec the remote claude with the SDK's argv. The
-// remote claude reads its own auth from ~/.claude (the result of having
-// run `claude auth login` on the host) — we don't touch it.
-const innerCmd = `cd ${shq(remoteCwd)} && exec claude ${remoteArgString}`;
+// The bash script that actually runs on the remote. We base64-encode it
+// before sending so we don't have to worry about quoting at the ssh /
+// remote-shell level.
+const remoteScript = [
+  'set -e',
+  '',
+  '# Capture the user\'s interactive-login PATH from a separate bash -lic',
+  '# subshell. Its stdout (which may include p10k instant prompt, fastfetch,',
+  '# .bashrc echos, openclaw completion errors, etc.) is captured into the',
+  '# RAW variable, so it NEVER reaches the SDK protocol stream. Sentinel',
+  '# strings let us extract just $PATH from any garbage the init scripts',
+  '# prepended.',
+  'RAW="$(bash -lic \'command printf "BRBEGIN%sBREND" "$PATH"\' </dev/null 2>/dev/null)" || RAW=""',
+  '',
+  '# Defensive guard: only override PATH if we actually got a properly-',
+  '# delimited value back. If the inner shell crashed or .bashrc errored',
+  '# out before printf, fall through to the bare PATH inherited from ssh',
+  '# (which probably won\'t find claude — but the error will be cleaner).',
+  'case "$RAW" in',
+  '  *BRBEGIN*BREND*)',
+  '    P="${RAW#*BRBEGIN}"',
+  '    P="${P%BREND*}"',
+  '    if [ -n "$P" ]; then',
+  '      export PATH="$P"',
+  '    fi',
+  '    ;;',
+  'esac',
+  '',
+  `cd ${shq(remoteCwd)} || { echo "[boardroom-ssh] cd failed: ${remoteCwd}" >&2; exit 1; }`,
+  '',
+  '# exec claude — its stdout takes over our stdout (which is the SDK',
+  '# pipe), and the parent SDK starts reading stream-json from a clean',
+  '# pipe with no init noise.',
+  `exec claude ${remoteArgString}`,
+  '',
+].join('\n');
 
-// Wrap the inner command in `bash -lic '...'` — login + interactive +
-// command. The `-i` (interactive) flag is critical: most ~/.bashrc files
-// on Debian/Ubuntu (and many custom dotfiles) start with:
+const b64 = Buffer.from(remoteScript, 'utf8').toString('base64');
+
+// We feed the script to the remote bash via `eval "$(printf %s B64 |
+// base64 -d)"`. The outer remote bash uses --noprofile --norc so its
+// own startup is silent. eval runs the decoded multi-line script in
+// that same bash, which means stdin (the SDK input pipe) and stdout
+// (the SDK output pipe) flow straight through to `claude` after exec.
 //
-//     case $- in *i*) ;; *) return;; esac
-//
-// which makes `.bashrc` bail for non-interactive shells. Without -i,
-// `bash -lc` is a non-interactive login shell, the guard fires, and all
-// the PATH setup in .bashrc (including nvm/asdf/mise bootstrapping and
-// ~/.local/bin additions) is skipped — so `claude` exits 127.
-//
-// The `-i` flag forces $- to include `i`, the guard passes, .bashrc
-// finishes, and PATH is populated. bash may warn "cannot set terminal
-// process group" to stderr since there's no tty, but that's harmless
-// and our stderr capture below drops it on a successful run.
-const remoteCmd = `bash -lic ${shq(innerCmd)}`;
+// Note: `base64 -d` is GNU/coreutils. Modern macOS supports both `-d`
+// and `-D`. Tested OSes (Ubuntu, Debian, RHEL, Alpine, modern macOS)
+// all accept `-d`. If you hit a host where it doesn't, swap to
+// `openssl base64 -d` here.
+const innerEval = `eval "$(printf %s ${b64} | base64 -d)"`;
 
 const sshArgs = [
   '-o', 'BatchMode=yes',
@@ -82,7 +138,7 @@ const sshArgs = [
   '-o', 'ControlPersist=10m',
 ];
 if (port) sshArgs.push('-p', String(port));
-sshArgs.push(host, '--', remoteCmd);
+sshArgs.push(host, '--', 'bash', '--noprofile', '--norc', '-c', innerEval);
 
 // Strip any local Anthropic credentials from the env we hand to ssh so we
 // can't accidentally smuggle them across the wire. The remote claude is
@@ -135,7 +191,12 @@ function writeDebugLog(code, signal) {
       `port: ${port ?? 'default'}`,
       `auth: remote (we don't forward credentials)`,
       `args: ${JSON.stringify(passthroughArgs)}`,
-      `cmd:  ssh ${sshArgs.join(' ')}`,
+      `cmd:  ssh ${sshArgs.map((a) => (a.includes(' ') || a.includes('"') ? JSON.stringify(a) : a)).join(' ')}`,
+      `decoded remote script (${remoteScript.length} bytes):`,
+      remoteScript
+        .split('\n')
+        .map((l) => `  | ${l}`)
+        .join('\n'),
       stderrText ? `stderr:\n${stderrText}` : 'stderr: (empty)',
       '',
     ];
