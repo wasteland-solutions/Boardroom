@@ -10,7 +10,34 @@ type SlashCommand = {
   name: string;
   description: string;
   argumentHint: string;
+  // 'sdk' = comes from Query.supportedCommands() (a real claude-code skill).
+  // 'boardroom' = handled locally by Boardroom; not sent to claude.
+  source?: 'sdk' | 'boardroom';
 };
+
+// Built-in client-side commands. These don't come from the SDK — Boardroom
+// handles them itself. They're merged into the autocomplete popup so the
+// user gets a unified `/` namespace.
+const BOARDROOM_BUILTIN_COMMANDS: SlashCommand[] = [
+  {
+    name: 'clear',
+    description: 'Start a fresh conversation in the same workspace (Boardroom)',
+    argumentHint: '',
+    source: 'boardroom',
+  },
+  {
+    name: 'archive',
+    description: 'Archive this conversation and jump to a new one (Boardroom)',
+    argumentHint: '',
+    source: 'boardroom',
+  },
+  {
+    name: 'info',
+    description: 'Show what Claude actually loaded for this session (Boardroom)',
+    argumentHint: '',
+    source: 'boardroom',
+  },
+];
 
 type StoredMessage = {
   id: string;
@@ -62,6 +89,7 @@ export function ChatShell({
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashSelected, setSlashSelected] = useState(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const slashPopupRef = useRef<HTMLDivElement>(null);
 
   // Persist the Archived group expand/collapse state in localStorage so
   // navigating between conversations / refreshing doesn't reset it.
@@ -109,17 +137,28 @@ export function ChatShell({
   // turnaround.
   useEffect(() => {
     if (!current) {
-      setSlashCommands([]);
+      setSlashCommands(BOARDROOM_BUILTIN_COMMANDS);
       return;
     }
     let cancelled = false;
+    // Show the Boardroom built-ins immediately so the popup isn't empty
+    // while we wait for the SDK list.
+    setSlashCommands(BOARDROOM_BUILTIN_COMMANDS);
     fetch(`/api/conversations/${current.id}/slash-commands`)
       .then((res) => (res.ok ? res.json() : { commands: [] }))
       .then((data: { commands?: SlashCommand[] }) => {
-        if (!cancelled) setSlashCommands(data.commands ?? []);
+        if (cancelled) return;
+        const sdk = (data.commands ?? []).map((c) => ({ ...c, source: 'sdk' as const }));
+        // Boardroom built-ins on top, SDK skills below, deduped by name.
+        const seen = new Set(BOARDROOM_BUILTIN_COMMANDS.map((c) => c.name));
+        const merged = [
+          ...BOARDROOM_BUILTIN_COMMANDS,
+          ...sdk.filter((c) => !seen.has(c.name)),
+        ];
+        setSlashCommands(merged);
       })
       .catch(() => {
-        if (!cancelled) setSlashCommands([]);
+        if (!cancelled) setSlashCommands(BOARDROOM_BUILTIN_COMMANDS);
       });
     return () => {
       cancelled = true;
@@ -151,6 +190,15 @@ export function ChatShell({
   useEffect(() => {
     setSlashSelected(0);
   }, [filteredSlashCommands.length]);
+
+  // Auto-scroll the selected row into view when navigating with arrows.
+  useEffect(() => {
+    if (!slashOpen) return;
+    const popup = slashPopupRef.current;
+    if (!popup) return;
+    const row = popup.querySelector<HTMLElement>('.slash-row.selected');
+    if (row) row.scrollIntoView({ block: 'nearest' });
+  }, [slashSelected, slashOpen]);
 
   const insertSlashCommand = useCallback(
     (cmd: SlashCommand) => {
@@ -215,14 +263,116 @@ export function ChatShell({
     };
   }, [current?.id]);
 
+  const setArchived = useCallback(
+    async (archived: boolean) => {
+      if (!current || busy) return;
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/conversations/${current.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        if (archived) {
+          const next = activeConvs.find((c) => c.id !== current.id);
+          router.push(next ? `/c/${next.id}` : '/c/new');
+        }
+        router.refresh();
+      } catch (err) {
+        console.error('[archive]', err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [current, busy, activeConvs, router],
+  );
+
+  // Boardroom-side handler for /clear, /archive, /info. These are
+  // intercepted before the message ever reaches the SDK so they don't
+  // get sent to claude as user text.
+  const handleBoardroomCommand = useCallback(
+    async (cmd: string): Promise<boolean> => {
+      if (!current) return false;
+      if (cmd === 'clear') {
+        // Create a fresh conversation in the same workspace with the
+        // same model / mode / instructions and navigate to it.
+        try {
+          const res = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cwd: current.cwd,
+              model: current.model,
+              permissionMode: current.permissionMode,
+              systemPromptAppend: current.systemPromptAppend ?? undefined,
+            }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const { conversation } = (await res.json()) as { conversation: Conversation };
+          setText('');
+          router.push(`/c/${conversation.id}`);
+          router.refresh();
+        } catch (err) {
+          console.error('[/clear]', err);
+        }
+        return true;
+      }
+      if (cmd === 'archive') {
+        setText('');
+        await setArchived(true);
+        return true;
+      }
+      if (cmd === 'info') {
+        // Inject a synthetic system block into the current view describing
+        // what this session is configured with. (Doesn't touch the SDK.)
+        const lines = [
+          `model: ${current.model}`,
+          `permission_mode: ${current.permissionMode}`,
+          `cwd: ${current.cwd}`,
+          `sdk_session_id: ${current.sdkSessionId ?? '(not started yet)'}`,
+          `archived: ${current.archived}`,
+          `system_prompt_append: ${current.systemPromptAppend ? `\n${current.systemPromptAppend}` : '(none)'}`,
+        ];
+        setBlocks((prev) => [
+          ...prev,
+          {
+            kind: 'system',
+            id: `info-${Date.now()}`,
+            seq: prev.length + 1,
+            text: lines.join('\n'),
+          },
+        ]);
+        setText('');
+        return true;
+      }
+      return false;
+    },
+    [current, router, setArchived],
+  );
+
   const send = useCallback(async () => {
     if (!current || !text.trim() || sending) return;
+
+    // Intercept Boardroom-side commands. Format: starts with `/`, the
+    // first whitespace-separated token (without the leading `/`) matches
+    // a known builtin name.
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/')) {
+      const firstToken = trimmed.slice(1).split(/\s/, 1)[0] ?? '';
+      const isBoardroom = BOARDROOM_BUILTIN_COMMANDS.some((c) => c.name === firstToken);
+      if (isBoardroom) {
+        await handleBoardroomCommand(firstToken);
+        return;
+      }
+    }
+
     setSending(true);
     try {
       const res = await fetch(`/api/input/${current.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'send', text: text.trim() }),
+        body: JSON.stringify({ type: 'send', text: trimmed }),
       });
       if (!res.ok) throw new Error(await res.text());
       setText('');
@@ -231,7 +381,7 @@ export function ChatShell({
     } finally {
       setSending(false);
     }
-  }, [current, text, sending]);
+  }, [current, text, sending, handleBoardroomCommand]);
 
   const onKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -290,34 +440,6 @@ export function ChatShell({
       });
     },
     [current],
-  );
-
-  const setArchived = useCallback(
-    async (archived: boolean) => {
-      if (!current || busy) return;
-      setBusy(true);
-      try {
-        const res = await fetch(`/api/conversations/${current.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        // Refresh server data + jump somewhere sane.
-        if (archived) {
-          // Pick the next non-archived conversation that isn't the one we
-          // just archived. Falls through to /c/new if there are none.
-          const next = activeConvs.find((c) => c.id !== current.id);
-          router.push(next ? `/c/${next.id}` : '/c/new');
-        }
-        router.refresh();
-      } catch (err) {
-        console.error('[archive]', err);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [current, busy, activeConvs, router],
   );
 
   const deleteConversation = useCallback(async () => {
@@ -520,12 +642,15 @@ export function ChatShell({
           </div>
           <div className="composer-wrap">
             {slashOpen && filteredSlashCommands.length > 0 && (
-              <div className="slash-popup">
-                <div className="slash-popup-eyebrow">Slash commands</div>
-                {filteredSlashCommands.slice(0, 8).map((cmd, idx) => (
+              <div className="slash-popup" ref={slashPopupRef}>
+                <div className="slash-popup-eyebrow">
+                  Slash commands · {filteredSlashCommands.length} match
+                  {filteredSlashCommands.length === 1 ? '' : 'es'}
+                </div>
+                {filteredSlashCommands.map((cmd, idx) => (
                   <button
                     type="button"
-                    key={cmd.name}
+                    key={`${cmd.source ?? 'sdk'}:${cmd.name}`}
                     className={`slash-row${idx === slashSelected ? ' selected' : ''}`}
                     onMouseEnter={() => setSlashSelected(idx)}
                     onClick={() => insertSlashCommand(cmd)}
@@ -533,6 +658,9 @@ export function ChatShell({
                     <div className="slash-name">
                       /{cmd.name}
                       {cmd.argumentHint && <span className="slash-hint"> {cmd.argumentHint}</span>}
+                      <span className={`slash-source slash-source-${cmd.source ?? 'sdk'}`}>
+                        {cmd.source === 'boardroom' ? 'boardroom' : 'skill'}
+                      </span>
                     </div>
                     {cmd.description && <div className="slash-desc">{cmd.description}</div>}
                   </button>
@@ -659,6 +787,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
   const [cwd, setCwd] = useState(cwds[0]?.path ?? '');
   const [model, setModel] = useState<ModelId>('claude-opus-4-6');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask');
+  const [systemPromptAppend, setSystemPromptAppend] = useState('');
   const [busy, setBusy] = useState(false);
 
   if (cwds.length === 0) {
@@ -686,6 +815,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
           cwd,
           model,
           permissionMode,
+          systemPromptAppend: systemPromptAppend.trim() || undefined,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -738,6 +868,21 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
             <option value="acceptEdits">acceptEdits — auto-approve file edits</option>
             <option value="bypassPermissions">bypassPermissions — full auto</option>
           </select>
+        </label>
+        <label>
+          <span>Custom instructions (optional)</span>
+          <textarea
+            value={systemPromptAppend}
+            onChange={(e) => setSystemPromptAppend(e.target.value)}
+            placeholder={'e.g. "You are Larry, the assistant for the Clawd project. When asked who you are, introduce yourself as Larry. Project conventions: ..."'}
+            rows={6}
+            style={{ minHeight: 120, fontFamily: 'inherit', fontSize: 13 }}
+          />
+          <span className="hint">
+            Appended to Claude Code&apos;s standard system prompt for this conversation.
+            Lets you give the agent a custom identity or project rules without writing
+            a CLAUDE.md on the host. Editable later from the chat header.
+          </span>
         </label>
         <button className="btn" onClick={submit} disabled={busy || !cwd} style={{ marginTop: 4 }}>
           {busy ? 'Creating…' : 'Create conversation'}

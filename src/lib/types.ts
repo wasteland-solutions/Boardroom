@@ -160,6 +160,7 @@ export type WorkerRpcRequest =
       authMode: AuthMode;
       anthropicApiKey: string;
       claudeCodeOauthToken: string;
+      systemPromptAppend: string | null;
     }
   | { id: string; op: 'send_user_message'; conversationId: string; text: string }
   | { id: string; op: 'set_permission_mode'; conversationId: string; mode: PermissionMode }

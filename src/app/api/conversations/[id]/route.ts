@@ -17,6 +17,7 @@ const PatchSchema = z.object({
   model: z.enum(DEFAULT_MODELS as [ModelId, ...ModelId[]]).optional(),
   permissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
   archived: z.boolean().optional(),
+  systemPromptAppend: z.string().max(8192).nullable().optional(),
 });
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -50,6 +51,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (parsed.data.model !== undefined) update.model = parsed.data.model;
   if (parsed.data.permissionMode !== undefined) update.permissionMode = parsed.data.permissionMode;
   if (parsed.data.archived !== undefined) update.archived = parsed.data.archived;
+  if (parsed.data.systemPromptAppend !== undefined) {
+    const trimmed = parsed.data.systemPromptAppend?.trim() ?? '';
+    update.systemPromptAppend = trimmed.length > 0 ? trimmed : null;
+  }
 
   db.update(conversations).set(update).where(eq(conversations.id, id)).run();
 
@@ -76,6 +81,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (parsed.data.archived === true && !existing.archived) {
     await agentClient.call({ op: 'close_session', conversationId: id }).catch(() => {
       // ignore
+    });
+  }
+
+  // The SDK has no setSystemPrompt() — to apply a new
+  // systemPromptAppend we have to close the session so the next
+  // start_or_resume rebuilds the Query with the new system prompt.
+  // Resume preserves the conversation history from the persisted
+  // sdkSessionId, so the user doesn't lose context.
+  if (
+    parsed.data.systemPromptAppend !== undefined &&
+    (parsed.data.systemPromptAppend?.trim() ?? '') !== (existing.systemPromptAppend ?? '')
+  ) {
+    await agentClient.call({ op: 'close_session', conversationId: id }).catch(() => {
+      // ignore — session may not be active yet
     });
   }
 

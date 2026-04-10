@@ -11,6 +11,11 @@ export const conversations = sqliteTable('conversations', {
   model: text('model').notNull(),
   permissionMode: text('permission_mode').notNull(), // 'ask' | 'acceptEdits' | 'bypassPermissions'
   sdkSessionId: text('sdk_session_id'),
+  // Optional extra instructions appended to claude_code's preset system
+  // prompt via the SDK's `systemPrompt: { append: ... }` option. Lets the
+  // user give the agent a custom identity / project rules without having
+  // to write a CLAUDE.md on the (possibly remote) host.
+  systemPromptAppend: text('system_prompt_append'),
   createdAt: integer('created_at', { mode: 'number' }).notNull().default(sql`(unixepoch() * 1000)`),
   updatedAt: integer('updated_at', { mode: 'number' }).notNull().default(sql`(unixepoch() * 1000)`),
   archived: integer('archived', { mode: 'boolean' }).notNull().default(false),

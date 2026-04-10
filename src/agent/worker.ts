@@ -89,6 +89,7 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
         sdkSessionId: req.sdkSessionId,
         mcpServers: req.mcpServers,
         permissionTimeoutMs: req.permissionTimeoutMs,
+        systemPromptAppend: req.systemPromptAppend,
       });
       return { conversationId: session.conversationId };
     }

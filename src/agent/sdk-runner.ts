@@ -24,6 +24,7 @@ export type StartOptions = {
   sdkSessionId: string | null;
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number;
+  systemPromptAppend: string | null;
 };
 
 // One ActiveQuery per conversation. Owns the bounded async queue that feeds
@@ -91,6 +92,20 @@ export class ActiveQuery {
       sshEnv.CLAUDE_CODE_OAUTH_TOKEN = undefined;
     }
 
+    // Build the system prompt. We always start from the claude_code
+    // preset (so the agent has its full toolbelt + behavior baked in)
+    // and then append the user's per-conversation custom instructions
+    // if they set any. This is the in-Boardroom alternative to
+    // dropping a CLAUDE.md on the host — the SDK option exists exactly
+    // for this case.
+    const systemPromptOption: { type: 'preset'; preset: 'claude_code'; append?: string } = {
+      type: 'preset',
+      preset: 'claude_code',
+    };
+    if (opts.systemPromptAppend && opts.systemPromptAppend.trim()) {
+      systemPromptOption.append = opts.systemPromptAppend.trim();
+    }
+
     this.q = query({
       prompt: this.iterator(),
       options: {
@@ -103,7 +118,7 @@ export class ActiveQuery {
         canUseTool,
         mcpServers: opts.mcpServers,
         settingSources: ['project'],
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: systemPromptOption,
         tools: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
         abortController: this.abortController,

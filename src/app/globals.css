@@ -664,6 +664,27 @@ code {
   color: var(--text-dim);
   font-weight: 400;
 }
+.slash-source {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  font-family: var(--font);
+  border: 1px solid var(--border);
+}
+.slash-source-boardroom {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+}
+.slash-source-sdk {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
 .slash-desc {
   font-size: 11px;
   color: var(--text-secondary);
