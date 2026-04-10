@@ -16,33 +16,25 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-# ---------- full dependency install (used by the build stage) ----------
+# ---------- install all deps ----------
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
-# Allow better-sqlite3 to build its native binding.
-ENV CI=1
-RUN pnpm install --frozen-lockfile \
-    && pnpm rebuild better-sqlite3
-
-# ---------- production-only deps (used by the runtime stage) ----------
-FROM base AS prod-deps
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-ENV CI=1
-RUN pnpm install --frozen-lockfile --prod \
-    && pnpm rebuild better-sqlite3
+# pnpm in CI blocks postinstall scripts by default. We need
+# better-sqlite3 and node-pty to compile their native bindings.
+RUN pnpm install --frozen-lockfile && \
+    node scripts/fix-node-pty.mjs 2>/dev/null || true
+COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
 
 # ---------- build stage ----------
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Build Next.js + compile the agent worker to dist/agent/
 RUN pnpm build
 
 # ---------- runtime stage ----------
-FROM base AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV DATABASE_PATH=/app/data/boardroom.db
@@ -51,14 +43,20 @@ ENV AGENT_WORKER_WS_PORT=8099
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tini \
+        git \
+        openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root runtime user.
 RUN groupadd --system --gid 1001 boardroom \
     && useradd --system --uid 1001 --gid boardroom --create-home boardroom
 
-# Production deps only (includes native better-sqlite3 binding).
-COPY --from=prod-deps /app/node_modules ./node_modules
-
-# Build outputs and runtime files.
+# Copy everything needed at runtime from the build stages.
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/dist ./dist
