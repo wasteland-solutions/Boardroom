@@ -8,6 +8,7 @@ export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
   title: text('title'),
   cwd: text('cwd').notNull(),
+  provider: text('provider').notNull().default('claude'), // 'claude' | 'codex'
   model: text('model').notNull(),
   permissionMode: text('permission_mode').notNull(), // 'ask' | 'acceptEdits' | 'bypassPermissions'
   sdkSessionId: text('sdk_session_id'),

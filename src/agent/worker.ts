@@ -84,6 +84,7 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
       const session = sessions.startOrResume({
         conversationId: req.conversationId,
         cwd: req.cwd,
+        provider: req.provider,
         model: req.model,
         permissionMode: req.permissionMode,
         sdkSessionId: req.sdkSessionId,
@@ -105,14 +106,14 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
     case 'set_permission_mode': {
       const session = sessions.get(req.conversationId);
       if (!session) throw new Error('no active session');
-      await session.setPermissionMode(req.mode);
+      if (session.setPermissionMode) await session.setPermissionMode(req.mode);
       return { ok: true };
     }
 
     case 'set_model': {
       const session = sessions.get(req.conversationId);
       if (!session) throw new Error('no active session');
-      await session.setModel(req.model);
+      if (session.setModel) await session.setModel(req.model);
       return { ok: true };
     }
 
@@ -137,7 +138,7 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
 
     case 'list_slash_commands': {
       const session = sessions.get(req.conversationId);
-      if (!session) return { commands: [] };
+      if (!session || !session.listSlashCommands) return { commands: [] };
       const commands = await session.listSlashCommands();
       return { commands };
     }

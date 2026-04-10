@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` ADD `provider` text DEFAULT 'claude' NOT NULL;

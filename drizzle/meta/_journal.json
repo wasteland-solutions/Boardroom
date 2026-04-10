@@ -15,6 +15,13 @@
       "when": 1775788577246,
       "tag": "0001_left_vengeance",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1775858106271,
+      "tag": "0002_special_rage",
+      "breakpoints": true
     }
   ]
 }

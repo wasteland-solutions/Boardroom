@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Conversation, Cwd } from '@/lib/schema';
-import { DEFAULT_MODELS, type ModelId, type PermissionMode, type StreamFrame } from '@/lib/types';
+import {
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  type ModelId,
+  type PermissionMode,
+  type Provider,
+  type StreamFrame,
+} from '@/lib/types';
 import { TerminalPanel } from './TerminalPanel';
 
 type SlashCommand = {
@@ -612,6 +619,7 @@ export function ChatShell({
           <div>
             <div className="chat-title">{current.title ?? 'Untitled'}</div>
             <div className="chat-subtitle">
+              <span className="chip">{(current as unknown as { provider?: string }).provider === 'codex' ? 'Codex' : 'Claude'}</span>
               <span className="chip">{current.model}</span>
               <span className="chip">{current.permissionMode}</span>
               <span className="chip">{current.cwd}</span>
@@ -850,10 +858,13 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [cwd, setCwd] = useState(cwds[0]?.path ?? '');
+  const [provider, setProvider] = useState<Provider>('claude');
   const [model, setModel] = useState<ModelId>('claude-opus-4-6');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask');
   const [systemPromptAppend, setSystemPromptAppend] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const models = provider === 'codex' ? CODEX_MODELS : CLAUDE_MODELS;
 
   if (cwds.length === 0) {
     return (
@@ -878,6 +889,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
         body: JSON.stringify({
           title: title || undefined,
           cwd,
+          provider,
           model,
           permissionMode,
           systemPromptAppend: systemPromptAppend.trim() || undefined,
@@ -905,6 +917,21 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
         </label>
         <label>
+          <span>Provider</span>
+          <select
+            value={provider}
+            onChange={(e) => {
+              const p = e.target.value as Provider;
+              setProvider(p);
+              // Switch to a default model for the new provider.
+              setModel(p === 'codex' ? 'o4-mini' : 'claude-opus-4-6');
+            }}
+          >
+            <option value="claude">Claude Code</option>
+            <option value="codex">Codex (OpenAI)</option>
+          </select>
+        </label>
+        <label>
           <span>Working directory</span>
           <select value={cwd} onChange={(e) => setCwd(e.target.value)}>
             {cwds.map((c) => (
@@ -917,7 +944,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
         <label>
           <span>Model</span>
           <select value={model} onChange={(e) => setModel(e.target.value as ModelId)}>
-            {DEFAULT_MODELS.map((m) => (
+            {models.map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>

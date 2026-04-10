@@ -41,6 +41,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ conversationId:
       op: 'start_or_resume',
       conversationId,
       cwd: conv.cwd,
+      provider: (conv.provider ?? 'claude') as never,
       model: conv.model as never,
       permissionMode: conv.permissionMode as never,
       sdkSessionId: conv.sdkSessionId,

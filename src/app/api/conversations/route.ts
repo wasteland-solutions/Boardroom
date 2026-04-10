@@ -13,6 +13,7 @@ type Scope = 'active' | 'archived' | 'all';
 const CreateSchema = z.object({
   title: z.string().max(200).optional(),
   cwd: z.string().min(1),
+  provider: z.enum(['claude', 'codex']).optional(),
   model: z.enum(DEFAULT_MODELS as [ModelId, ...ModelId[]]).optional(),
   permissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
   systemPromptAppend: z.string().max(8192).optional(),
@@ -59,12 +60,15 @@ export async function POST(req: Request) {
   const settings = getSettings();
   const id = randomUUID();
   const now = Date.now();
+  const provider = parsed.data.provider ?? 'claude';
+
   db.insert(conversations)
     .values({
       id,
       title: parsed.data.title ?? null,
       cwd: parsed.data.cwd,
-      model: parsed.data.model ?? settings.defaultModel,
+      provider,
+      model: parsed.data.model ?? (provider === 'codex' ? 'o4-mini' : settings.defaultModel),
       permissionMode: (parsed.data.permissionMode ?? settings.defaultPermissionMode) as PermissionMode,
       sdkSessionId: null,
       systemPromptAppend: parsed.data.systemPromptAppend?.trim() || null,
