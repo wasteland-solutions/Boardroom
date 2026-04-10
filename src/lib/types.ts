@@ -174,6 +174,7 @@ export type WorkerRpcRequest =
     }
   | { id: string; op: 'interrupt'; conversationId: string }
   | { id: string; op: 'close_session'; conversationId: string }
+  | { id: string; op: 'list_slash_commands'; conversationId: string }
   | { id: string; op: 'subscribe'; conversationId: string }
   | { id: string; op: 'unsubscribe'; conversationId: string };
 

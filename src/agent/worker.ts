@@ -132,6 +132,13 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
       return { ok: true };
     }
 
+    case 'list_slash_commands': {
+      const session = sessions.get(req.conversationId);
+      if (!session) return { commands: [] };
+      const commands = await session.listSlashCommands();
+      return { commands };
+    }
+
     default:
       throw new Error(`unknown op: ${(req as { op: string }).op}`);
   }

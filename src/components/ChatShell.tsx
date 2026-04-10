@@ -6,6 +6,12 @@ import type { Conversation, Cwd } from '@/lib/schema';
 import { DEFAULT_MODELS, type ModelId, type PermissionMode, type StreamFrame } from '@/lib/types';
 import { TerminalPanel } from './TerminalPanel';
 
+type SlashCommand = {
+  name: string;
+  description: string;
+  argumentHint: string;
+};
+
 type StoredMessage = {
   id: string;
   seq: number;
@@ -52,6 +58,10 @@ export function ChatShell({
   const [showTerminal, setShowTerminal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashSelected, setSlashSelected] = useState(0);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Persist the Archived group expand/collapse state in localStorage so
   // navigating between conversations / refreshing doesn't reset it.
@@ -92,6 +102,67 @@ export function ChatShell({
     const el = messagesRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [blocks]);
+
+  // Fetch the slash command list once per conversation. The endpoint
+  // lazily spawns the SDK session in the worker if it isn't already
+  // running, so this also pre-warms the chat for faster first-message
+  // turnaround.
+  useEffect(() => {
+    if (!current) {
+      setSlashCommands([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/conversations/${current.id}/slash-commands`)
+      .then((res) => (res.ok ? res.json() : { commands: [] }))
+      .then((data: { commands?: SlashCommand[] }) => {
+        if (!cancelled) setSlashCommands(data.commands ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSlashCommands([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [current?.id]);
+
+  // Filter commands to whatever the user has typed after the leading `/`.
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashOpen) return [];
+    const query = text.startsWith('/') ? text.slice(1).split(/\s/, 1)[0] ?? '' : '';
+    if (!query) return slashCommands;
+    const q = query.toLowerCase();
+    return slashCommands.filter(
+      (c) => c.name.toLowerCase().startsWith(q) || c.name.toLowerCase().includes(q),
+    );
+  }, [slashOpen, slashCommands, text]);
+
+  // Open / close the slash popup based on whether the composer text
+  // currently looks like the user is starting a slash command.
+  useEffect(() => {
+    if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n') && slashCommands.length > 0) {
+      setSlashOpen(true);
+    } else {
+      setSlashOpen(false);
+    }
+  }, [text, slashCommands.length]);
+
+  // Reset highlight when the filtered list changes.
+  useEffect(() => {
+    setSlashSelected(0);
+  }, [filteredSlashCommands.length]);
+
+  const insertSlashCommand = useCallback(
+    (cmd: SlashCommand) => {
+      // Replace the current `/foo` token with the full command name and
+      // a trailing space (so the user can immediately type args).
+      setText(`/${cmd.name} `);
+      setSlashOpen(false);
+      // Refocus the textarea so the user can keep typing.
+      requestAnimationFrame(() => composerRef.current?.focus());
+    },
+    [],
+  );
 
   // Open SSE stream for the current conversation.
   useEffect(() => {
@@ -164,6 +235,31 @@ export function ChatShell({
 
   const onKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // When the slash popup is open, intercept arrows / Enter / Escape
+      // for navigation before falling through to the normal send
+      // handling.
+      if (slashOpen && filteredSlashCommands.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSlashSelected((s) => (s + 1) % filteredSlashCommands.length);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSlashSelected((s) => (s - 1 + filteredSlashCommands.length) % filteredSlashCommands.length);
+          return;
+        }
+        if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+          e.preventDefault();
+          insertSlashCommand(filteredSlashCommands[slashSelected]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSlashOpen(false);
+          return;
+        }
+      }
       // Enter alone sends, Shift+Enter inserts a newline. Skip while an
       // IME composition is in progress so Asian input methods don't get
       // their Enter-to-commit swallowed.
@@ -172,7 +268,7 @@ export function ChatShell({
         void send();
       }
     },
-    [send],
+    [send, slashOpen, filteredSlashCommands, slashSelected, insertSlashCommand],
   );
 
   const stop = useCallback(async () => {
@@ -422,18 +518,41 @@ export function ChatShell({
               <MessageBlock key={b.id} block={b} onResolve={resolvePermission} />
             ))}
           </div>
-          <div className="composer">
-            <textarea
-              rows={2}
-              placeholder="Message Claude Code — Enter to send, Shift+Enter for newline"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={onKey}
-              disabled={sending}
-            />
-            <button className="btn" onClick={send} disabled={sending || !text.trim()}>
-              Send
-            </button>
+          <div className="composer-wrap">
+            {slashOpen && filteredSlashCommands.length > 0 && (
+              <div className="slash-popup">
+                <div className="slash-popup-eyebrow">Slash commands</div>
+                {filteredSlashCommands.slice(0, 8).map((cmd, idx) => (
+                  <button
+                    type="button"
+                    key={cmd.name}
+                    className={`slash-row${idx === slashSelected ? ' selected' : ''}`}
+                    onMouseEnter={() => setSlashSelected(idx)}
+                    onClick={() => insertSlashCommand(cmd)}
+                  >
+                    <div className="slash-name">
+                      /{cmd.name}
+                      {cmd.argumentHint && <span className="slash-hint"> {cmd.argumentHint}</span>}
+                    </div>
+                    {cmd.description && <div className="slash-desc">{cmd.description}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="composer">
+              <textarea
+                ref={composerRef}
+                rows={2}
+                placeholder="Message Claude Code — Enter to send, Shift+Enter for newline, / for commands"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={onKey}
+                disabled={sending}
+              />
+              <button className="btn" onClick={send} disabled={sending || !text.trim()}>
+                Send
+              </button>
+            </div>
           </div>
         </section>
         {showTerminal && <TerminalPanel conversationId={current.id} />}
@@ -633,6 +752,10 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
 function hydrateBlocks(rows: StoredMessage[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = [];
   for (const r of rows) {
+    // Skip persisted SDK system frames — they're stored for debugging
+    // (loaded memory paths, mcp status, slash commands) but shouldn't
+    // clutter the chat view.
+    if (r.role === 'system') continue;
     const content = r.content;
     if (r.role === 'user') {
       blocks.push({
@@ -793,12 +916,17 @@ function applyFrames(prev: DisplayBlock[], frames: StreamFrame[]): DisplayBlock[
 }
 
 function extractText(content: unknown): string {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') return content.replace(/^\s+/, '');
   if (!Array.isArray(content)) return '';
+  // Claude often prefixes responses with one or two leading newlines
+  // (artifact of the trained-in formatting). With white-space: pre-wrap
+  // those render as visible blank lines at the top of every bubble.
+  // Strip any leading whitespace from the joined text.
   return (content as Array<{ type?: string; text?: string }>)
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')
-    .join('');
+    .join('')
+    .replace(/^\s+/, '');
 }
 
 function stringifyContent(c: unknown): string {

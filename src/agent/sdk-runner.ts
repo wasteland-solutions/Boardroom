@@ -260,6 +260,17 @@ export class ActiveQuery {
     this.abortController.abort();
   }
 
+  async listSlashCommands(): Promise<Array<{ name: string; description: string; argumentHint: string }>> {
+    if (this.dead) return [];
+    try {
+      const cmds = await this.q.supportedCommands();
+      return cmds;
+    } catch (err) {
+      console.error('[sdk-runner] supportedCommands failed:', err);
+      return [];
+    }
+  }
+
   close() {
     this.done = true;
     for (const r of this.queueResolvers) r({ value: undefined as never, done: true });
@@ -292,6 +303,33 @@ export class ActiveQuery {
         const anyMsg = msg as unknown as { session_id?: string; subtype?: string };
         if (anyMsg.session_id) persistence.setSdkSessionId(convId, anyMsg.session_id);
         const seq = persistence.nextSeq(convId);
+        // Persist init/system metadata so we can debug what claude
+        // actually loaded — memory paths, skills list, mcp status, etc.
+        // The frontend currently ignores `system` rows when hydrating
+        // so they don't clutter the chat view.
+        persistence.writeMessage({
+          conversationId: convId,
+          role: 'system',
+          sdkMessageType: `system${anyMsg.subtype ? `:${anyMsg.subtype}` : ''}`,
+          content: msg,
+          seq,
+        });
+        if (anyMsg.subtype === 'init') {
+          // Compact one-line console log so we can spot what claude
+          // loaded without grovelling through the SQLite blob.
+          const init = msg as unknown as {
+            cwd?: string;
+            tools?: string[];
+            mcp_servers?: Array<{ name?: string; status?: string }>;
+            slash_commands?: string[];
+          };
+          console.log(
+            `[sdk-runner] system:init for ${convId}: cwd=${init.cwd ?? '?'} ` +
+              `tools=${(init.tools ?? []).length} ` +
+              `mcp=${(init.mcp_servers ?? []).map((m) => `${m.name}(${m.status})`).join(',') || 'none'} ` +
+              `commands=${(init.slash_commands ?? []).length}`,
+          );
+        }
         this.emit(convId, { type: 'system', conversationId: convId, seq, payload: msg });
         return;
       }

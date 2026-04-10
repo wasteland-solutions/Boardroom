@@ -191,6 +191,30 @@ The wrapper script explicitly strips `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_
 
 If you have a need to use the local account on the remote (e.g. you want billing to go to your local Max sub instead of the remote's account), set `CLAUDE_CODE_OAUTH_TOKEN` directly in the remote user's `~/.bashrc` and we'll pick it up via the same `bash -lic` that handles PATH.
 
+### Giving the agent a custom identity / project context
+
+Boardroom passes `settingSources: ['project']` to the SDK, which is exactly what claude needs to load **`CLAUDE.md`** from the workspace cwd. To give the agent a custom personality, project rules, or pre-loaded context, drop a `CLAUDE.md` in the workspace root (or any parent directory):
+
+```markdown
+# Larry — assistant for the Clawd project
+
+You are Larry, the in-house assistant for Clawd. When asked who you are,
+introduce yourself as Larry.
+
+## Project conventions
+- All Python files use 4-space indentation.
+- New API endpoints go under `app/api/` and require pytest coverage.
+- Migrations live in `db/migrations/` and are managed by alembic.
+```
+
+Claude Code auto-discovers this file on session start and prepends it to the system prompt. For SSH workspaces, the file lives on the remote host (e.g. `larry:/home/ubuntu/clawd/CLAUDE.md`); the wrapper cd's into that directory before exec'ing claude, so auto-discovery works the same way.
+
+You can confirm what the agent loaded by inspecting the persisted `system` rows in `data/boardroom.db`:
+
+```bash
+sqlite3 data/boardroom.db "SELECT content FROM messages WHERE role='system' AND sdk_message_type='system:init' ORDER BY seq DESC LIMIT 1" | python3 -m json.tool
+```
+
 ### Limitations
 
 - **No interactive prompts.** Password / passphrase / yes-no host-key prompts will fail. Pre-trust hosts and use key auth.
