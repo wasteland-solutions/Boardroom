@@ -366,6 +366,10 @@ code {
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   flex-shrink: 0;
+  /* Stay above the terminal panel so buttons are always clickable
+     even when xterm.js has focus and its textarea overlay is active. */
+  position: relative;
+  z-index: 10;
 }
 .chat-title {
   font-weight: 600;
