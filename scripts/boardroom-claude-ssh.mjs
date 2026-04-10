@@ -47,17 +47,33 @@ function shq(s) {
 const passthroughArgs = process.argv.slice(2);
 const remoteArgString = passthroughArgs.map(shq).join(' ');
 
-// Build the remote command. We unwrap the smuggled token (if any) into the
-// real env var name, cd into the remote workspace, then exec claude with
-// the original argv.
-const remoteCmdParts = [`cd ${shq(remoteCwd)}`];
+// Build the inner command we want a login shell on the remote to run.
+// `bash -lc` invokes a *login* shell which sources ~/.bash_profile,
+// ~/.profile, etc. — that's where `claude` typically lives via npm-global,
+// nvm, asdf, mise, or homebrew. Without -lc the remote PATH is just SSH's
+// default (~/usr/bin:/bin) and `claude` exits 127 immediately.
+//
+// We also unwrap the smuggled OAuth token / API key from the LC_* env
+// vars (which sshd typically forwards because of `AcceptEnv LC_*`) into
+// the real env var names that the claude CLI reads.
+const innerParts = [`cd ${shq(remoteCwd)}`];
 if (token) {
-  remoteCmdParts.push(
+  innerParts.push(
     'if [ -n "${LC_BOARDROOM_TOKEN-}" ]; then export CLAUDE_CODE_OAUTH_TOKEN="$LC_BOARDROOM_TOKEN"; fi',
   );
 }
-remoteCmdParts.push(`exec claude ${remoteArgString}`);
-const remoteCmd = remoteCmdParts.join(' && ');
+innerParts.push(
+  'if [ -n "${LC_BOARDROOM_API_KEY-}" ]; then export ANTHROPIC_API_KEY="$LC_BOARDROOM_API_KEY"; fi',
+);
+innerParts.push(`exec claude ${remoteArgString}`);
+const innerCmd = innerParts.join(' && ');
+
+// Wrap the inner command in `bash -lc '...'` so the remote bash sources
+// the user's login profile and `claude` is on PATH. If bash isn't on the
+// remote, fall back to the user's $SHELL -lc; that's harder to do robustly
+// from a one-shot ssh command, so for now we require bash. README mentions
+// this requirement.
+const remoteCmd = `bash -lc ${shq(innerCmd)}`;
 
 const sshArgs = [
   '-o', 'BatchMode=yes',

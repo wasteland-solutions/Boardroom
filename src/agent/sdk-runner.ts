@@ -34,6 +34,14 @@ export class ActiveQuery {
   private queue: SDKUserMessage[] = [];
   private queueResolvers: Array<(v: IteratorResult<SDKUserMessage>) => void> = [];
   private done = false;
+  // True once the underlying claude process has crashed or been closed.
+  // sendUserText / setPermissionMode / setModel all bail when this is set
+  // so we don't try to write to a dead transport (which the SDK throws on
+  // synchronously, killing the worker).
+  private dead = false;
+  // Callback the SessionManager subscribes to so it can evict this entry
+  // from its map when we self-terminate.
+  private onDeadCallback: (() => void) | null = null;
   // ID of the Anthropic assistant message currently being streamed. Set on
   // message_start and reused for every content_block_delta in that turn so
   // the UI can key every delta against one stable message ID and append to
@@ -42,6 +50,14 @@ export class ActiveQuery {
   private currentStreamingMessageId: string | null = null;
   public readonly abortController = new AbortController();
   public lastActivity = Date.now();
+
+  get isDead() {
+    return this.dead;
+  }
+
+  setOnDead(cb: () => void) {
+    this.onDeadCallback = cb;
+  }
 
   constructor(
     private readonly opts: StartOptions,
@@ -109,9 +125,41 @@ export class ActiveQuery {
         type: 'error',
         conversationId: opts.conversationId,
         seq,
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyErrorMessage(err),
       });
+      // Tear ourselves down so the next sendUserText doesn't try to write
+      // to the dead transport (which throws inside the SDK and crashes
+      // the worker if not caught).
+      this.markDead();
     });
+  }
+
+  private markDead() {
+    if (this.dead) return;
+    this.dead = true;
+    this.done = true;
+    // Drain any pending input resolvers so the SDK iterator returns
+    // cleanly and the SDK lets go of its end of the stream.
+    for (const r of this.queueResolvers) {
+      try {
+        r({ value: undefined as never, done: true });
+      } catch {
+        // ignore
+      }
+    }
+    this.queueResolvers = [];
+    // Resolve any pending permission prompts with deny so the UI doesn't
+    // hang on a bubble forever.
+    this.broker.clearForConversation(this.opts.conversationId);
+    // Tell the SessionManager to evict us so the next start_or_resume
+    // creates a fresh ActiveQuery.
+    if (this.onDeadCallback) {
+      try {
+        this.onDeadCallback();
+      } catch (err) {
+        console.error('[sdk-runner] onDead callback threw:', err);
+      }
+    }
   }
 
   // Implements the AsyncIterable<SDKUserMessage> that the SDK consumes.
@@ -130,6 +178,19 @@ export class ActiveQuery {
   }
 
   sendUserText(text: string) {
+    if (this.dead) {
+      // The underlying claude process is gone — likely the previous
+      // attempt crashed. Surface a clear error and let the route handler
+      // re-spawn on next start_or_resume.
+      const seq = persistence.nextSeq(this.opts.conversationId);
+      this.emit(this.opts.conversationId, {
+        type: 'error',
+        conversationId: this.opts.conversationId,
+        seq,
+        message: 'Session is dead — open the conversation again to retry.',
+      });
+      return;
+    }
     this.lastActivity = Date.now();
     const userMessage: SDKUserMessage = {
       type: 'user',
@@ -168,17 +229,28 @@ export class ActiveQuery {
   }
 
   async setPermissionMode(mode: PermissionMode) {
+    if (this.dead) return;
     this.lastActivity = Date.now();
     const sdkMode = mode === 'ask' ? 'default' : mode;
-    await this.q.setPermissionMode(sdkMode as 'default' | 'acceptEdits' | 'bypassPermissions');
+    try {
+      await this.q.setPermissionMode(sdkMode as 'default' | 'acceptEdits' | 'bypassPermissions');
+    } catch (err) {
+      console.error('[sdk-runner] setPermissionMode failed:', err);
+    }
   }
 
   async setModel(model: ModelId) {
+    if (this.dead) return;
     this.lastActivity = Date.now();
-    await this.q.setModel(model);
+    try {
+      await this.q.setModel(model);
+    } catch (err) {
+      console.error('[sdk-runner] setModel failed:', err);
+    }
   }
 
   async interrupt() {
+    if (this.dead) return;
     try {
       await this.q.interrupt();
     } catch (err) {
@@ -370,4 +442,25 @@ export class ActiveQuery {
       }
     }
   }
+}
+
+// Convert raw SDK errors into user-facing message strings. Most SDK errors
+// are opaque ("Claude Code process exited with code N") — we add a hint
+// for the common ones so the UI gives the user something to act on.
+function friendlyErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/exited with code 127/.test(raw)) {
+    return (
+      'claude exited with code 127 (command not found). For SSH workspaces ' +
+      'this usually means `claude` is not on PATH for the remote login shell. ' +
+      'Check `bash -lc "which claude"` on the remote host.'
+    );
+  }
+  if (/exited with code 255/.test(raw)) {
+    return (
+      'ssh exited with code 255 (connection failed). Check the host is ' +
+      'reachable and your key auth works non-interactively.'
+    );
+  }
+  return raw;
 }

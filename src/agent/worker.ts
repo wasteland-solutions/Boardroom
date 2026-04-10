@@ -137,6 +137,20 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
   }
 }
 
+// Safety net: a buggy SDK code path or a misbehaving Claude child can throw
+// inside a microtask that we don't have a handle on (e.g. the SDK's internal
+// stream pump writing to a transport whose child has already exited). The
+// default Node behavior is to crash the worker, which kills *every* active
+// session — terrible UX. We log + keep going. Individual ActiveQuery
+// instances mark themselves dead in their reader-loop catch handlers, so
+// the affected conversation gets a clear error and the worker stays up.
+process.on('unhandledRejection', (reason) => {
+  console.error('[boardroom-agent] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[boardroom-agent] uncaughtException:', err);
+});
+
 async function main() {
   rpc = new RpcServer(socketPath, handle);
   await rpc.listen();

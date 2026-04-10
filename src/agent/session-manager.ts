@@ -21,8 +21,18 @@ export class SessionManager {
 
   startOrResume(opts: StartOptions): ActiveQuery {
     const existing = this.sessions.get(opts.conversationId);
-    if (existing) return existing;
+    if (existing && !existing.isDead) return existing;
+    if (existing && existing.isDead) {
+      // Drop the corpse so we spawn a fresh one below.
+      this.sessions.delete(opts.conversationId);
+    }
     const session = new ActiveQuery(opts, this.broker, this.emit);
+    // Self-evict on reader-loop crash so the next start_or_resume creates
+    // a fresh ActiveQuery with a fresh child process.
+    session.setOnDead(() => {
+      const current = this.sessions.get(opts.conversationId);
+      if (current === session) this.sessions.delete(opts.conversationId);
+    });
     this.sessions.set(opts.conversationId, session);
     return session;
   }
