@@ -24,6 +24,15 @@ export type Workspace = LocalWorkspace | RemoteWorkspace | { kind: 'invalid'; re
 
 const SSH_PREFIX = 'ssh://';
 
+// `[user@]host[:port]:/abs/path` — the rsync/scp/git short form. We require
+// the path to be absolute (must start with `/` after the colon) so we can
+// distinguish from a local Mac/Linux path that happens to contain a colon.
+// Host part may not contain `/`. Port part is digits between `:port:` only
+// when there's a *second* colon delimiter — to keep parsing unambiguous, we
+// require a `host:/` boundary, and `host:port:/path` is rejected (use the
+// ssh:// URI form for non-default ports).
+const SHORT_FORM_RE = /^(?:([^@/:\s]+)@)?([^@/:\s]+):(\/[^\s].*)$/;
+
 export function parseWorkspacePath(input: string): Workspace {
   const trimmed = input.trim();
   if (!trimmed) return { kind: 'invalid', reason: 'empty' };
@@ -32,11 +41,27 @@ export function parseWorkspacePath(input: string): Workspace {
     return parseSshUri(trimmed);
   }
 
-  // Anything else must be an absolute local path.
-  if (!trimmed.startsWith('/')) {
-    return { kind: 'invalid', reason: 'must be absolute or ssh://' };
+  // Local absolute path takes priority over the short form so a literal
+  // colon in a local path doesn't get misinterpreted.
+  if (trimmed.startsWith('/')) {
+    return { kind: 'local', path: trimmed };
   }
-  return { kind: 'local', path: trimmed };
+
+  // [user@]host:/abs/path short form
+  const m = trimmed.match(SHORT_FORM_RE);
+  if (m) {
+    const [, user, host, path] = m;
+    return {
+      kind: 'remote',
+      user: user ?? null,
+      host,
+      port: null,
+      path,
+      raw: `ssh://${user ? user + '@' : ''}${host}${path}`,
+    };
+  }
+
+  return { kind: 'invalid', reason: 'must be absolute, ssh://, or user@host:/path' };
 }
 
 function parseSshUri(uri: string): Workspace {
@@ -84,6 +109,50 @@ function parseSshUri(uri: string): Workspace {
 // was specified (so SSH falls back to the system default / ~/.ssh/config).
 export function sshTarget(ws: RemoteWorkspace): string {
   return ws.user ? `${ws.user}@${ws.host}` : ws.host;
+}
+
+// Parse a host string of the form `[user@]host[:port]` (no path). Used by
+// the Settings form's optional Host field. Empty string returns null.
+export function parseHostString(
+  input: string,
+): { user: string | null; host: string; port: number | null } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  // Reject anything that contains a slash or whitespace.
+  if (/[\s/]/.test(trimmed)) return null;
+  let user: string | null = null;
+  let rest = trimmed;
+  const at = trimmed.indexOf('@');
+  if (at > 0) {
+    user = trimmed.slice(0, at);
+    rest = trimmed.slice(at + 1);
+  }
+  let host = rest;
+  let port: number | null = null;
+  const colon = rest.lastIndexOf(':');
+  if (colon > 0) {
+    const portStr = rest.slice(colon + 1);
+    const portNum = Number(portStr);
+    if (Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535) {
+      host = rest.slice(0, colon);
+      port = portNum;
+    }
+  }
+  if (!host) return null;
+  return { user, host, port };
+}
+
+// Build an ssh:// URI from split fields. Used by the cwds POST when the
+// caller sends {host, path} instead of a pre-formed URI.
+export function buildSshUri(host: string, path: string): string | null {
+  const parsedHost = parseHostString(host);
+  if (!parsedHost) return null;
+  if (!path.startsWith('/')) return null;
+  const userPart = parsedHost.user ? `${encodeURIComponent(parsedHost.user)}@` : '';
+  const portPart = parsedHost.port ? `:${parsedHost.port}` : '';
+  // We don't percent-encode the path beyond what URL would; spaces survive
+  // because we decode them on the other end.
+  return `ssh://${userPart}${parsedHost.host}${portPart}${path}`;
 }
 
 // Human-readable label for sidebars / chat headers.

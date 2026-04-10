@@ -9,6 +9,7 @@ import {
   type ModelId,
   type PermissionMode,
 } from '@/lib/types';
+import { DirectoryBrowser } from './DirectoryBrowser';
 
 export function SettingsForm({
   initialSettings,
@@ -21,10 +22,12 @@ export function SettingsForm({
   const [mcpText, setMcpText] = useState(JSON.stringify(initialSettings.mcpServers, null, 2));
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [cwdList, setCwdList] = useState<Cwd[]>(initialCwds);
+  const [newHost, setNewHost] = useState('');
   const [newPath, setNewPath] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [browserOpen, setBrowserOpen] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -68,7 +71,11 @@ export function SettingsForm({
     const res = await fetch('/api/cwds', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: newPath.trim(), label: newLabel.trim() }),
+      body: JSON.stringify({
+        host: newHost.trim() || undefined,
+        path: newPath.trim(),
+        label: newLabel.trim(),
+      }),
     });
     if (res.ok) {
       const { cwd } = (await res.json()) as { cwd: Cwd };
@@ -76,11 +83,12 @@ export function SettingsForm({
         const without = prev.filter((c) => c.path !== cwd.path);
         return [...without, { ...cwd, createdAt: Date.now() }];
       });
+      setNewHost('');
       setNewPath('');
       setNewLabel('');
     } else {
-      const text = await res.text();
-      setStatus('Add cwd failed: ' + text);
+      const body = await res.json().catch(() => ({}));
+      setStatus('Add workspace failed: ' + (body.error ?? res.statusText));
     }
   };
 
@@ -198,12 +206,11 @@ export function SettingsForm({
       <section>
         <h2>Working directories</h2>
         <div className="banner" style={{ marginBottom: 14 }}>
-          <strong>Local:</strong> absolute path on the Boardroom host
+          <strong>Local:</strong> leave Host blank, Path is an absolute local path
           (e.g. <code>/Users/you/Code/my-app</code>).<br />
-          <strong>Remote (SSH):</strong> paste an{' '}
-          <code>ssh://user@host[:port]/path/on/remote</code> URI. Boardroom will run{' '}
-          <code>claude</code> on that host via your existing <code>~/.ssh</code> config and the
-          terminal panel will drop you into a real shell there.<br />
+          <strong>Remote (SSH):</strong> Host is <code>user@host[:port]</code>
+          (e.g. <code>ubuntu@172.16.0.5</code>), Path is the absolute remote path.
+          Click <strong>Browse</strong> to navigate via SSH instead of typing.<br />
           <strong>Docker:</strong> for local paths, mount your host project into the container
           first via <code>docker-compose.yml</code>, then add the container-side path
           (e.g. <code>/workspaces/my-app</code>) here.
@@ -224,18 +231,64 @@ export function SettingsForm({
             </button>
           </div>
         ))}
-        <div className="cwd-add">
-          <input
-            placeholder="/abs/local/path  or  ssh://user@host/remote/path"
-            value={newPath}
-            onChange={(e) => setNewPath(e.target.value)}
-          />
-          <input placeholder="Label" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
-          <button className="btn" onClick={addCwd}>
-            Add
+        <div className="cwd-add-grid">
+          <label>
+            <span>Host (optional, blank = local)</span>
+            <input
+              placeholder="user@host or user@host:2222"
+              value={newHost}
+              onChange={(e) => setNewHost(e.target.value)}
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            <span>Path (absolute)</span>
+            <div className="cwd-path-row">
+              <input
+                placeholder="/path/to/project"
+                value={newPath}
+                onChange={(e) => setNewPath(e.target.value)}
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setBrowserOpen(true)}
+                title="Browse for a directory"
+              >
+                Browse
+              </button>
+            </div>
+          </label>
+          <label>
+            <span>Label</span>
+            <input
+              placeholder="my-app"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+            />
+          </label>
+          <button
+            className="btn"
+            onClick={addCwd}
+            disabled={!newPath.trim() || !newLabel.trim()}
+          >
+            Add workspace
           </button>
         </div>
       </section>
+
+      {browserOpen && (
+        <DirectoryBrowser
+          host={newHost}
+          initialPath={newPath || (newHost ? '/home' : '/')}
+          onPick={(picked) => {
+            setNewPath(picked);
+            setBrowserOpen(false);
+          }}
+          onClose={() => setBrowserOpen(false)}
+        />
+      )}
 
       <section>
         <h2>MCP servers (JSON)</h2>

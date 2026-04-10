@@ -6,11 +6,19 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { cwds } from '@/lib/schema';
-import { parseWorkspacePath } from '@/lib/workspace';
+import { buildSshUri, parseWorkspacePath } from '@/lib/workspace';
 
+// Two accepted shapes:
+//   { path: '/local/abs', label }
+//   { path: 'ssh://user@host/path' OR 'user@host:/path', label }
+//   { host: 'user@host[:port]', path: '/remote/path', label }
+//
+// The third shape lets the Settings form pass split fields without
+// reassembling the URI on the client side.
 const AddSchema = z.object({
   path: z.string().min(1),
   label: z.string().min(1).max(200),
+  host: z.string().optional(),
 });
 
 export async function GET() {
@@ -28,10 +36,28 @@ export async function POST(req: Request) {
   const parsed = AddSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
 
+  // If the caller provided a separate host field, build the ssh:// URI
+  // server-side. Otherwise treat the path as a freeform input that
+  // parseWorkspacePath understands (absolute local, ssh:// URI, or the
+  // user@host:/path short form).
+  let workspaceInput: string;
+  if (parsed.data.host && parsed.data.host.trim()) {
+    const uri = buildSshUri(parsed.data.host.trim(), parsed.data.path.trim());
+    if (!uri) {
+      return NextResponse.json(
+        { error: 'invalid host or path — host should be `user@host[:port]` and path must be absolute' },
+        { status: 400 },
+      );
+    }
+    workspaceInput = uri;
+  } else {
+    workspaceInput = parsed.data.path.trim();
+  }
+
   // Workspace path can be either an absolute local path OR an ssh:// URI.
   // For local paths we still verify the directory exists; for SSH workspaces
   // we trust the user to know their remote layout (no liveness check on add).
-  const ws = parseWorkspacePath(parsed.data.path);
+  const ws = parseWorkspacePath(workspaceInput);
   if (ws.kind === 'invalid') {
     return NextResponse.json({ error: `invalid path: ${ws.reason}` }, { status: 400 });
   }
