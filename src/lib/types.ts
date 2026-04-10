@@ -4,7 +4,18 @@ export type PermissionMode = 'ask' | 'acceptEdits' | 'bypassPermissions';
 
 export type Provider = 'claude' | 'codex';
 
-export type ModelId = 'claude-opus-4-6' | 'claude-sonnet-4-6' | 'claude-haiku-4-5' | 'o4-mini' | 'o3' | 'gpt-4.1';
+export type ModelId =
+  | 'claude-opus-4-6'
+  | 'claude-sonnet-4-6'
+  | 'claude-haiku-4-5'
+  | 'o4-mini'
+  | 'o3'
+  | 'o3-pro'
+  | 'gpt-4.1'
+  | 'gpt-4.1-mini'
+  | 'gpt-4.1-nano'
+  | 'gpt-4o'
+  | 'gpt-4o-mini';
 
 // `api_key`     — use the ANTHROPIC_API_KEY env var. Billed to your Anthropic
 //                 Console account.
@@ -24,7 +35,12 @@ export const CLAUDE_MODELS: ModelId[] = [
 export const CODEX_MODELS: ModelId[] = [
   'o4-mini',
   'o3',
+  'o3-pro',
   'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'gpt-4o',
+  'gpt-4o-mini',
 ];
 
 export const ALL_MODELS: ModelId[] = [...CLAUDE_MODELS, ...CODEX_MODELS];
