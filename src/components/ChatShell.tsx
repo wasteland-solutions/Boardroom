@@ -84,6 +84,7 @@ export function ChatShell({
   const [showNew, setShowNew] = useState(current === null);
   const [showChat, setShowChat] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
@@ -355,9 +356,12 @@ export function ChatShell({
   const send = useCallback(async () => {
     if (!current || !text.trim() || sending) return;
 
-    // Intercept Boardroom-side commands. Format: starts with `/`, the
-    // first whitespace-separated token (without the leading `/`) matches
-    // a known builtin name.
+    // Block sends when the session is stopped — the user must click
+    // Resume first so they have explicit control over when the agent
+    // reconnects.
+    if (stopped) return;
+
+    // Intercept Boardroom-side commands.
     const trimmed = text.trim();
     if (trimmed.startsWith('/')) {
       const firstToken = trimmed.slice(1).split(/\s/, 1)[0] ?? '';
@@ -382,7 +386,7 @@ export function ChatShell({
     } finally {
       setSending(false);
     }
-  }, [current, text, sending, handleBoardroomCommand]);
+  }, [current, text, sending, stopped, handleBoardroomCommand]);
 
   const onKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -429,15 +433,28 @@ export function ChatShell({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'interrupt' }),
     });
-    // Always inject a visible system row so the user knows Stop did
-    // something (or that there was nothing running to stop).
+    setStopped(true);
     setBlocks((prev) => [
       ...prev,
       {
         kind: 'system' as const,
         id: `stop-${Date.now()}`,
         seq: prev.length + 1,
-        text: res.ok ? 'Stopped.' : 'Stop failed.',
+        text: res.ok ? 'Stopped. Click Resume to continue.' : 'Stop failed.',
+      },
+    ]);
+  }, [current]);
+
+  const resume = useCallback(async () => {
+    if (!current) return;
+    setStopped(false);
+    setBlocks((prev) => [
+      ...prev,
+      {
+        kind: 'system' as const,
+        id: `resume-${Date.now()}`,
+        seq: prev.length + 1,
+        text: 'Resumed.',
       },
     ]);
   }, [current]);
@@ -652,9 +669,15 @@ export function ChatShell({
             >
               Delete
             </button>
-            <button className="btn stop" onClick={stop}>
-              Stop
-            </button>
+            {stopped ? (
+              <button className="btn" onClick={resume}>
+                Resume
+              </button>
+            ) : (
+              <button className="btn stop" onClick={stop}>
+                Stop
+              </button>
+            )}
           </div>
         </header>
         <div className={`workspace-split${showTerminal && showChat ? ' with-terminal' : ''}${showTerminal && !showChat ? ' terminal-only' : ''}`}>
@@ -702,13 +725,13 @@ export function ChatShell({
               <textarea
                 ref={composerRef}
                 rows={2}
-                placeholder="Message Claude Code — Enter to send, Shift+Enter for newline, / for commands"
+                placeholder={stopped ? 'Session stopped — click Resume to continue' : 'Message Claude Code — Enter to send, Shift+Enter for newline, / for commands'}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKey}
-                disabled={sending}
+                disabled={sending || stopped}
               />
-              <button className="btn" onClick={send} disabled={sending || !text.trim()}>
+              <button className="btn" onClick={send} disabled={sending || stopped || !text.trim()}>
                 Send
               </button>
             </div>
