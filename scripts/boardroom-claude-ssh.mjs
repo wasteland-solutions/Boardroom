@@ -117,17 +117,31 @@ const remoteScript = [
 
 const b64 = Buffer.from(remoteScript, 'utf8').toString('base64');
 
-// We feed the script to the remote bash via `eval "$(printf %s B64 |
-// base64 -d)"`. The outer remote bash uses --noprofile --norc so its
-// own startup is silent. eval runs the decoded multi-line script in
-// that same bash, which means stdin (the SDK input pipe) and stdout
-// (the SDK output pipe) flow straight through to `claude` after exec.
+// CRITICAL: ssh joins everything after the host with single spaces and
+// hands the result to the remote /bin/sh as a single command line. It
+// does NOT add quoting, so if we pass `bash --noprofile --norc -c
+// "eval ..."` as separate argv elements, the remote shell tokenizes
+// `bash --noprofile --norc -c eval "..."` and `-c`'s argument becomes
+// just `eval` (the no-op builtin). claude is never exec'd, ssh exits 0,
+// the SDK gets `ProcessTransport is not ready for writing` on the next
+// user message because the child's stdin pipe is already closed.
+//
+// Fix: wrap the entire `bash --noprofile --norc -c '...'` as ONE argv
+// element with literal single quotes around the eval expression. The
+// single quotes survive ssh's space-join and the remote /bin/sh parses
+// them as a single argument to bash -c.
+//
+// We feed the multi-line script to the remote bash via `eval "$(printf
+// %s B64 | base64 -d)"`. The outer remote bash uses --noprofile --norc
+// so its own startup is silent. eval runs the decoded script in that
+// same bash, which means stdin (the SDK input pipe) and stdout (the
+// SDK output pipe) flow straight through to `claude` after exec.
 //
 // Note: `base64 -d` is GNU/coreutils. Modern macOS supports both `-d`
 // and `-D`. Tested OSes (Ubuntu, Debian, RHEL, Alpine, modern macOS)
 // all accept `-d`. If you hit a host where it doesn't, swap to
 // `openssl base64 -d` here.
-const innerEval = `eval "$(printf %s ${b64} | base64 -d)"`;
+const remoteCommand = `bash --noprofile --norc -c 'eval "$(printf %s ${b64} | base64 -d)"'`;
 
 const sshArgs = [
   '-o', 'BatchMode=yes',
@@ -138,7 +152,7 @@ const sshArgs = [
   '-o', 'ControlPersist=10m',
 ];
 if (port) sshArgs.push('-p', String(port));
-sshArgs.push(host, '--', 'bash', '--noprofile', '--norc', '-c', innerEval);
+sshArgs.push(host, '--', remoteCommand);
 
 // Strip any local Anthropic credentials from the env we hand to ssh so we
 // can't accidentally smuggle them across the wire. The remote claude is

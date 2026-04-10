@@ -53,6 +53,27 @@ export function ChatShell({
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Persist the Archived group expand/collapse state in localStorage so
+  // navigating between conversations / refreshing doesn't reset it.
+  // Hydrate on mount; write on change.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('boardroom:showArchived');
+      if (stored === '1') setShowArchived(true);
+      else if (stored === '0') setShowArchived(false);
+    } catch {
+      // localStorage may be unavailable (private mode etc.) — fall through
+      // to the default `false`.
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('boardroom:showArchived', showArchived ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [showArchived]);
+
   const activeConvs = useMemo(() => conversations.filter((c) => !c.archived), [conversations]);
   const archivedConvs = useMemo(() => conversations.filter((c) => c.archived), [conversations]);
   const messagesRef = useRef<HTMLDivElement>(null);
