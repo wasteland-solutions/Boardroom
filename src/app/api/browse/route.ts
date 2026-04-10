@@ -98,12 +98,13 @@ async function browseRemote(hostInput: string, path: string) {
   //   -A   include dotfiles but exclude . and ..
   //   -p   append `/` to directory names so we can tell them apart
   //
-  // We wrap in `bash -lc` for the same reason the SDK wrapper does — so
-  // PATH is set up via the user's login profile. The path is single-quoted
-  // to survive shell parsing; embedded `'` is escaped via the standard
-  // `'\''` trick.
+  // Same `bash -lic` trick as the SDK wrapper — `-i` is needed to make
+  // .bashrc actually run on Debian/Ubuntu where the interactive guard
+  // returns early for non-interactive shells. Without it, `ls` is fine
+  // (it's in /bin) but the same code path won't find user-installed
+  // tools, which would surprise users.
   const remoteCmd = `cd '${path.replace(/'/g, "'\\''")}' && ls -1Ap`;
-  const wrapped = `bash -lc '${remoteCmd.replace(/'/g, "'\\''")}'`;
+  const wrapped = `bash -lic '${remoteCmd.replace(/'/g, "'\\''")}'`;
 
   const sshArgs = [
     '-o', 'BatchMode=yes',

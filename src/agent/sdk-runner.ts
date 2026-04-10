@@ -453,13 +453,16 @@ function friendlyErrorMessage(err: unknown): string {
     return (
       'claude exited with code 127 (command not found). For SSH workspaces ' +
       'this usually means `claude` is not on PATH for the remote login shell. ' +
-      'Check `bash -lc "which claude"` on the remote host.'
+      'Run `bash -lic "which claude"` on the remote — if that prints a path ' +
+      'but Boardroom still fails, check /tmp/boardroom-ssh-last.log on the ' +
+      'Boardroom host for the captured ssh stderr.'
     );
   }
   if (/exited with code 255/.test(raw)) {
     return (
       'ssh exited with code 255 (connection failed). Check the host is ' +
-      'reachable and your key auth works non-interactively.'
+      'reachable and your key auth works non-interactively. Full debug log: ' +
+      '/tmp/boardroom-ssh-last.log on the Boardroom host.'
     );
   }
   return raw;

@@ -26,6 +26,8 @@
 //   - The remote claude version should be compatible with the local SDK.
 
 import { spawn } from 'node:child_process';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 const host = process.env.BOARDROOM_SSH_HOST;
 const remoteCwd = process.env.BOARDROOM_SSH_CWD;
@@ -68,12 +70,22 @@ innerParts.push(
 innerParts.push(`exec claude ${remoteArgString}`);
 const innerCmd = innerParts.join(' && ');
 
-// Wrap the inner command in `bash -lc '...'` so the remote bash sources
-// the user's login profile and `claude` is on PATH. If bash isn't on the
-// remote, fall back to the user's $SHELL -lc; that's harder to do robustly
-// from a one-shot ssh command, so for now we require bash. README mentions
-// this requirement.
-const remoteCmd = `bash -lc ${shq(innerCmd)}`;
+// Wrap the inner command in `bash -lic '...'` — login + interactive +
+// command. The `-i` (interactive) flag is critical: most ~/.bashrc files
+// on Debian/Ubuntu (and many custom dotfiles) start with:
+//
+//     case $- in *i*) ;; *) return;; esac
+//
+// which makes `.bashrc` bail for non-interactive shells. Without -i,
+// `bash -lc` is a non-interactive login shell, the guard fires, and all
+// the PATH setup in .bashrc (including nvm/asdf/mise bootstrapping and
+// ~/.local/bin additions) is skipped — so `claude` exits 127.
+//
+// The `-i` flag forces $- to include `i`, the guard passes, .bashrc
+// finishes, and PATH is populated. bash may warn "cannot set terminal
+// process group" to stderr since there's no tty, but that's harmless
+// and our stderr capture below drops it on a successful run.
+const remoteCmd = `bash -lic ${shq(innerCmd)}`;
 
 const sshArgs = [
   '-o', 'BatchMode=yes',
@@ -93,9 +105,21 @@ if (token) childEnv.LC_BOARDROOM_TOKEN = token;
 // LC_ smuggling channel.
 delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
 
+// We capture ssh's stderr so that on a non-zero exit we have something to
+// show the user. Stdin and stdout are inherited 1:1 — that's the SDK
+// stream-json protocol channel.
 const child = spawn('ssh', sshArgs, {
-  stdio: 'inherit',
+  stdio: ['inherit', 'inherit', 'pipe'],
   env: childEnv,
+});
+
+const stderrChunks = [];
+child.stderr.on('data', (chunk) => {
+  stderrChunks.push(chunk);
+  // Also pass through to our own stderr in case the parent SDK / harness
+  // surfaces it. The SDK currently throws away child stderr but that may
+  // change.
+  process.stderr.write(chunk);
 });
 
 // Propagate signals from the SDK (the parent) down to the remote claude.
@@ -110,7 +134,41 @@ const fwd = (sig) => {
 };
 ['SIGINT', 'SIGTERM', 'SIGHUP'].forEach((sig) => process.on(sig, () => fwd(sig)));
 
+function writeDebugLog(code, signal) {
+  // Even on success we leave a tiny log so the user can confirm the
+  // wrapper actually ran. On failure we dump everything we know about
+  // the invocation so it's possible to debug without re-running.
+  try {
+    const logPath = '/tmp/boardroom-ssh-last.log';
+    mkdirSync(dirname(logPath), { recursive: true });
+    const stderrText = Buffer.concat(stderrChunks).toString('utf8');
+    const lines = [
+      `# ${new Date().toISOString()}  exit=${code ?? 'null'} signal=${signal ?? 'null'}`,
+      `host: ${host}`,
+      `cwd:  ${remoteCwd}`,
+      `port: ${port ?? 'default'}`,
+      `auth: ${token ? 'oauth-token' : 'none-or-server-side'}`,
+      `args: ${JSON.stringify(passthroughArgs)}`,
+      `cmd:  ssh ${sshArgs.join(' ')}`,
+      stderrText ? `stderr:\n${stderrText}` : 'stderr: (empty)',
+      '',
+    ];
+    appendFileSync(logPath, lines.join('\n'));
+  } catch {
+    // ignore log failures — never block on diagnostics
+  }
+}
+
 child.on('exit', (code, signal) => {
+  writeDebugLog(code, signal);
+  if (code !== 0) {
+    const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
+    process.stderr.write(
+      `[boardroom-ssh] ssh exited with code ${code}${signal ? ` (signal ${signal})` : ''}\n` +
+        (stderrText ? `[boardroom-ssh] stderr: ${stderrText}\n` : '') +
+        `[boardroom-ssh] full debug log: /tmp/boardroom-ssh-last.log\n`,
+    );
+  }
   if (signal) {
     process.kill(process.pid, signal);
     return;
@@ -120,5 +178,6 @@ child.on('exit', (code, signal) => {
 
 child.on('error', (err) => {
   process.stderr.write(`[boardroom-ssh] failed to spawn ssh: ${err.message}\n`);
+  writeDebugLog(127, null);
   process.exit(127);
 });
