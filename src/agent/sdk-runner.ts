@@ -126,7 +126,9 @@ export class ActiveQuery {
                 spawnSshClaude(remote, sdkOpts),
             }
           : {}),
-        ...(opts.sdkSessionId ? { resume: opts.sdkSessionId, forkSession: false } : {}),
+        ...(opts.sdkSessionId && opts.sdkSessionId.length > 0
+          ? { resume: opts.sdkSessionId, forkSession: false }
+          : {}),
       },
     });
 
@@ -270,6 +272,11 @@ export class ActiveQuery {
       console.error('[sdk-runner] interrupt failed:', err);
     }
     this.abortController.abort();
+    // Clear the saved session ID so the next start_or_resume creates a
+    // fresh session instead of trying to --resume a session file that
+    // was potentially corrupted by the interrupt (the remote claude
+    // gets SIGHUPed when ssh drops and may not save cleanly).
+    persistence.setSdkSessionId(this.opts.conversationId, '');
   }
 
   async listSlashCommands(): Promise<Array<{ name: string; description: string; argumentHint: string }>> {
