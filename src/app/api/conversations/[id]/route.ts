@@ -64,6 +64,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       });
   }
 
+  // Archiving → tear down the SDK session and the terminal pty so we
+  // aren't holding resources for work that's "done". Unarchiving does
+  // nothing at the worker level — the session will be recreated lazily
+  // on the next send or stream attach.
+  if (parsed.data.archived === true && !existing.archived) {
+    await agentClient.call({ op: 'close_session', conversationId: id }).catch(() => {
+      // ignore
+    });
+  }
+
   const updated = db.select().from(conversations).where(eq(conversations.id, id)).get();
   return NextResponse.json({ conversation: updated });
 }

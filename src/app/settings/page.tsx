@@ -13,7 +13,12 @@ export default async function SettingsPage() {
   const db = getDb();
   const settings = getSettings();
   const allCwds = db.select().from(cwds).all();
-  const allConvs = db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
+  const allConvs = db
+    .select()
+    .from(conversations)
+    .orderBy(desc(conversations.updatedAt))
+    .all()
+    .filter((c) => !c.archived);
 
   return (
     <div className="app">

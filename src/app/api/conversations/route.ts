@@ -8,6 +8,8 @@ import { conversations, cwds } from '@/lib/schema';
 import { getSettings } from '@/lib/settings-store';
 import { DEFAULT_MODELS, type ModelId, type PermissionMode } from '@/lib/types';
 
+type Scope = 'active' | 'archived' | 'all';
+
 const CreateSchema = z.object({
   title: z.string().max(200).optional(),
   cwd: z.string().min(1),
@@ -15,12 +17,24 @@ const CreateSchema = z.object({
   permissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const scopeParam = searchParams.get('scope');
+  const scope: Scope =
+    scopeParam === 'archived' || scopeParam === 'all' ? (scopeParam as Scope) : 'active';
+
   const db = getDb();
-  const rows = db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
+  const all = db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
+  const rows =
+    scope === 'all'
+      ? all
+      : scope === 'archived'
+      ? all.filter((c) => c.archived)
+      : all.filter((c) => !c.archived);
+
   return NextResponse.json({ conversations: rows });
 }
 

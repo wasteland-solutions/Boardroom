@@ -55,6 +55,7 @@ import { RpcServer } from './rpc';
 import { SessionManager } from './session-manager';
 import { PermissionBroker } from './permission-broker';
 import { TerminalWsServer } from './ws-server';
+import { ptyManager } from './pty-manager';
 import type { StreamFrame, WorkerRpcRequest } from '../lib/types';
 
 const socketPath = process.env.AGENT_WORKER_SOCKET ?? './.agent.sock';
@@ -127,6 +128,7 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
 
     case 'close_session': {
       sessions.close(req.conversationId);
+      ptyManager.kill(req.conversationId);
       return { ok: true };
     }
 

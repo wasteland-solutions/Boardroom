@@ -50,6 +50,11 @@ export function ChatShell({
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const activeConvs = useMemo(() => conversations.filter((c) => !c.archived), [conversations]);
+  const archivedConvs = useMemo(() => conversations.filter((c) => c.archived), [conversations]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -170,6 +175,34 @@ export function ChatShell({
     [current],
   );
 
+  const setArchived = useCallback(
+    async (archived: boolean) => {
+      if (!current || busy) return;
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/conversations/${current.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archived }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        // Refresh server data + jump somewhere sane.
+        if (archived) {
+          // Pick the next non-archived conversation that isn't the one we
+          // just archived. Falls through to /c/new if there are none.
+          const next = activeConvs.find((c) => c.id !== current.id);
+          router.push(next ? `/c/${next.id}` : '/c/new');
+        }
+        router.refresh();
+      } catch (err) {
+        console.error('[archive]', err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [current, busy, activeConvs, router],
+  );
+
   const sidebar = useMemo(
     () => (
       <aside className="sidebar">
@@ -192,10 +225,10 @@ export function ChatShell({
           </div>
         </div>
 
-        <div>
+        <div className="conv-section">
           <div className="sidebar-eyebrow">Conversations</div>
           <div className="conv-list">
-            {conversations.map((c) => (
+            {activeConvs.map((c) => (
               <a
                 key={c.id}
                 href={`/c/${c.id}`}
@@ -205,9 +238,38 @@ export function ChatShell({
                 <div className="meta">{c.cwd}</div>
               </a>
             ))}
-            {conversations.length === 0 && <div className="conv-empty">No conversations yet</div>}
+            {activeConvs.length === 0 && <div className="conv-empty">No conversations yet</div>}
           </div>
         </div>
+
+        {archivedConvs.length > 0 && (
+          <div className="conv-section">
+            <button
+              type="button"
+              className="conv-toggle"
+              onClick={() => setShowArchived((v) => !v)}
+              aria-expanded={showArchived}
+            >
+              <span>{showArchived ? '▾' : '▸'}</span>
+              <span>Archived</span>
+              <span className="conv-toggle-count">{archivedConvs.length}</span>
+            </button>
+            {showArchived && (
+              <div className="conv-list">
+                {archivedConvs.map((c) => (
+                  <a
+                    key={c.id}
+                    href={`/c/${c.id}`}
+                    className={`conv-item archived${current?.id === c.id ? ' active' : ''}`}
+                  >
+                    <div className="title">{c.title ?? 'Untitled'}</div>
+                    <div className="meta">{c.cwd}</div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="sidebar-footer">
           <span className="dot" />
@@ -215,7 +277,7 @@ export function ChatShell({
         </div>
       </aside>
     ),
-    [conversations, current?.id, router],
+    [activeConvs, archivedConvs, current?.id, router, showArchived],
   );
 
   if (showNew) {
@@ -259,6 +321,7 @@ export function ChatShell({
                 <span className="chip">{current.model}</span>
                 <span className="chip">{current.permissionMode}</span>
                 <span className="chip">{current.cwd}</span>
+                {current.archived && <span className="chip chip-archived">archived</span>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -269,6 +332,25 @@ export function ChatShell({
               >
                 {showTerminal ? 'Hide terminal' : 'Terminal'}
               </button>
+              {current.archived ? (
+                <button
+                  className="btn ghost"
+                  onClick={() => setArchived(false)}
+                  disabled={busy}
+                  title="Move back to active conversations"
+                >
+                  Unarchive
+                </button>
+              ) : (
+                <button
+                  className="btn ghost"
+                  onClick={() => setArchived(true)}
+                  disabled={busy}
+                  title="Archive — tears down the SDK session and pty"
+                >
+                  Archive
+                </button>
+              )}
               <button className="btn stop" onClick={stop}>
                 Stop
               </button>
