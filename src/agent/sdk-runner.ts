@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { dirname } from 'node:path';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { SpawnOptions as SdkSpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import { persistence } from './persistence';
 import type { PermissionBroker } from './permission-broker';
 import { parseWorkspacePath, sshTarget, type RemoteWorkspace } from '../lib/workspace';
@@ -12,11 +14,6 @@ import type {
   PermissionMode,
   StreamFrame,
 } from '../lib/types';
-
-// Path to the SSH bridge wrapper script. Resolved relative to the working
-// directory because pnpm dev and pnpm start both run from the repo root,
-// and the Dockerfile keeps the same layout (`scripts/` lives at /app).
-const SSH_WRAPPER_PATH = resolve(process.cwd(), 'scripts', 'boardroom-claude-ssh.mjs');
 
 export type StartOptions = {
   conversationId: string;
@@ -78,30 +75,9 @@ export class ActiveQuery {
   ) {
     const canUseTool = this.broker.createCallback(opts.conversationId, opts.permissionTimeoutMs);
 
-    // Detect remote workspaces. For SSH cwds we point the SDK at our
-    // wrapper binary instead of the bundled claude, then forward host /
-    // remote-cwd / token info via the SDK's per-query env option so the
-    // wrapper can SSH to the right place.
     const parsed = parseWorkspacePath(opts.cwd);
     const isRemote = parsed.kind === 'remote';
     const remote = isRemote ? (parsed as RemoteWorkspace) : null;
-
-    const sshEnv: Record<string, string | undefined> = {};
-    if (remote) {
-      sshEnv.BOARDROOM_SSH_HOST = sshTarget(remote);
-      sshEnv.BOARDROOM_SSH_CWD = remote.path;
-      if (remote.port) sshEnv.BOARDROOM_SSH_PORT = String(remote.port);
-      // We do NOT forward local Anthropic credentials to the remote.
-      // The remote `claude` uses whatever's in its own ~/.claude (run
-      // `claude auth login` on the host once and you're set). Forwarding
-      // would just clobber that with the local Boardroom user's auth and
-      // cause account-mismatch / stale-token bugs. The wrapper script
-      // also strips ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from
-      // ssh's child env defensively, but we don't even bother seeding
-      // them here.
-      sshEnv.ANTHROPIC_API_KEY = undefined;
-      sshEnv.CLAUDE_CODE_OAUTH_TOKEN = undefined;
-    }
 
     // Load any workspace-root memory files (CLAUDE.md, SOUL.md,
     // IDENTITY.md, TOOLS.md, MEMORY.md, AGENTS.md, ... — configurable
@@ -149,11 +125,17 @@ export class ActiveQuery {
         tools: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
         abortController: this.abortController,
+        // For SSH workspaces we use the SDK's spawnClaudeCodeProcess
+        // callback instead of pathToClaudeCodeExecutable. This is the
+        // SDK's *intended* extension point for VMs / containers / SSH —
+        // it keeps the client identity / headers identical to a standard
+        // SDK spawn, which avoids Anthropic's third-party-harness
+        // classification. pathToClaudeCodeExecutable swaps the binary
+        // and the SDK reports it as a non-standard executable.
         ...(remote
           ? {
-              pathToClaudeCodeExecutable: SSH_WRAPPER_PATH,
-              executable: 'node' as const,
-              env: buildSshChildEnv(sshEnv),
+              spawnClaudeCodeProcess: (sdkOpts: SdkSpawnOptions) =>
+                spawnSshClaude(remote, sdkOpts),
             }
           : {}),
         ...(opts.sdkSessionId ? { resume: opts.sdkSessionId, forkSession: false } : {}),
@@ -525,26 +507,119 @@ export class ActiveQuery {
   }
 }
 
-// Build the env we hand to the SSH wrapper child. Starts from process.env
-// minus any local Anthropic credentials, then layers the BOARDROOM_SSH_*
-// fields on top. The wrapper script also strips these defensively, but
-// removing them here means they never even reach the wrapper.
-function buildSshChildEnv(
-  sshEnv: Record<string, string | undefined>,
-): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(process.env)) {
+// Single-quote a string for safe inclusion in a remote sh command.
+function shq(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+// Spawn `claude` on a remote host over SSH and return a ChildProcess that
+// satisfies the SDK's SpawnedProcess interface. This is the
+// spawnClaudeCodeProcess callback — the SDK calls it instead of its
+// default local spawn, receives the ChildProcess back, and pipes the
+// stream-json protocol through ssh transparently. Because we're using
+// the SDK's proper extension point (not pathToClaudeCodeExecutable), the
+// client identity / API headers stay identical to a standard SDK spawn —
+// no third-party-harness classification.
+function spawnSshClaude(
+  remote: RemoteWorkspace,
+  sdkOpts: SdkSpawnOptions,
+) {
+  const target = sshTarget(remote);
+
+  // Build the remote bootstrap script. Same two-shell dance: bash
+  // --noprofile --norc outer shell (silent stdout) captures PATH from
+  // a bash -lic subshell, then cd + exec claude with the SDK's args.
+  const argsString = sdkOpts.args.map((a) => shq(a)).join(' ');
+  const remoteScript = [
+    'set -e',
+    '',
+    'RAW="$(bash -lic \'command printf "BRBEGIN%sBREND" "$PATH"\' </dev/null 2>/dev/null)" || RAW=""',
+    'case "$RAW" in',
+    '  *BRBEGIN*BREND*)',
+    '    P="${RAW#*BRBEGIN}"',
+    '    P="${P%BREND*}"',
+    '    if [ -n "$P" ]; then',
+    '      export PATH="$P"',
+    '    fi',
+    '    ;;',
+    'esac',
+    '',
+    `cd ${shq(remote.path)} || { echo "[boardroom-ssh] cd failed: ${remote.path}" >&2; exit 1; }`,
+    `exec claude ${argsString}`,
+    '',
+  ].join('\n');
+
+  const b64 = Buffer.from(remoteScript, 'utf8').toString('base64');
+  const remoteCommand = `bash --noprofile --norc -c 'eval "$(printf %s ${b64} | base64 -d)"'`;
+
+  const sshArgs = [
+    '-o', 'BatchMode=yes',
+    '-o', 'ServerAliveInterval=30',
+    '-o', 'ServerAliveCountMax=3',
+    '-o', 'ControlMaster=auto',
+    '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
+    '-o', 'ControlPersist=10m',
+  ];
+  if (remote.port) sshArgs.push('-p', String(remote.port));
+  sshArgs.push(target, '--', remoteCommand);
+
+  // Strip local Anthropic credentials from the child env so they can't
+  // leak to the remote. The remote claude uses its own auth.
+  const childEnv: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(sdkOpts.env)) {
     if (k === 'ANTHROPIC_API_KEY' || k === 'CLAUDE_CODE_OAUTH_TOKEN') continue;
-    out[k] = v;
+    childEnv[k] = v;
   }
-  for (const [k, v] of Object.entries(sshEnv)) {
-    if (v === undefined) {
-      delete out[k];
-    } else {
-      out[k] = v;
+
+  const child = spawn('ssh', sshArgs, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: childEnv as NodeJS.ProcessEnv,
+  });
+
+  // Wire the SDK's abort signal to kill the ssh child.
+  const onAbort = () => {
+    if (!child.killed) child.kill('SIGTERM');
+  };
+  sdkOpts.signal.addEventListener('abort', onAbort, { once: true });
+
+  // Debug logging — capture stderr and dump on exit.
+  const stderrChunks: Buffer[] = [];
+  child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+  child.on('exit', (code, signal) => {
+    try {
+      const logPath = '/tmp/boardroom-ssh-last.log';
+      mkdirSync(dirname(logPath), { recursive: true });
+      const stderrText = Buffer.concat(stderrChunks).toString('utf8');
+      const lines = [
+        `# ${new Date().toISOString()}  exit=${code ?? 'null'} signal=${signal ?? 'null'}`,
+        `host: ${target}`,
+        `cwd:  ${remote.path}`,
+        `port: ${remote.port ?? 'default'}`,
+        `auth: remote (we don't forward credentials)`,
+        `args: ${JSON.stringify(sdkOpts.args)}`,
+        `cmd:  ssh ${sshArgs.join(' ')}`,
+        stderrText ? `stderr:\n${stderrText}` : 'stderr: (empty)',
+        '',
+      ];
+      appendFileSync(logPath, lines.join('\n'));
+    } catch {
+      // ignore log failures
     }
-  }
-  return out;
+    if (code !== 0) {
+      const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
+      console.error(
+        `[spawnSshClaude] ssh exited ${code}${signal ? ` (${signal})` : ''}` +
+          (stderrText ? ` stderr: ${stderrText}` : '') +
+          ` — debug log: /tmp/boardroom-ssh-last.log`,
+      );
+    }
+  });
+
+  // ChildProcess satisfies SpawnedProcess at runtime (stdin/stdout are
+  // Writable/Readable when spawned with stdio: 'pipe'). TypeScript
+  // complains because ChildProcess types stdin as `Writable | null` —
+  // we know it's non-null here because of the pipe stdio config.
+  return child as unknown as import('@anthropic-ai/claude-agent-sdk').SpawnedProcess;
 }
 
 // Read configured workspace memory files (e.g. CLAUDE.md, SOUL.md,
