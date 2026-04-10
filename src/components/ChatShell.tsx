@@ -82,6 +82,7 @@ export function ChatShell({
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
+  const [showChat, setShowChat] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -574,58 +575,79 @@ export function ChatShell({
     <div className="app">
       {sidebar}
       <main className="main-panel">
-        <div className={`workspace-split${showTerminal ? ' with-terminal' : ''}`}>
-        <section className="chat">
-          <header className="chat-header">
-            <div>
-              <div className="chat-title">{current.title ?? 'Untitled'}</div>
-              <div className="chat-subtitle">
-                <span className="chip">{current.model}</span>
-                <span className="chip">{current.permissionMode}</span>
-                <span className="chip">{current.cwd}</span>
-                {current.archived && <span className="chip chip-archived">archived</span>}
-              </div>
+        <header className="chat-header">
+          <div>
+            <div className="chat-title">{current.title ?? 'Untitled'}</div>
+            <div className="chat-subtitle">
+              <span className="chip">{current.model}</span>
+              <span className="chip">{current.permissionMode}</span>
+              <span className="chip">{current.cwd}</span>
+              {current.archived && <span className="chip chip-archived">archived</span>}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className={`btn ghost${showChat ? ' active' : ''}`}
+              onClick={() => {
+                setShowChat((v) => {
+                  const next = !v;
+                  // If hiding chat, make sure terminal is visible.
+                  if (!next && !showTerminal) setShowTerminal(true);
+                  return next;
+                });
+              }}
+              title="Toggle chat panel"
+            >
+              Chat
+            </button>
+            <button
+              className={`btn ghost${showTerminal ? ' active' : ''}`}
+              onClick={() => {
+                setShowTerminal((v) => {
+                  const next = !v;
+                  // If hiding terminal, make sure chat is visible.
+                  if (!next && !showChat) setShowChat(true);
+                  return next;
+                });
+              }}
+              title="Toggle terminal"
+            >
+              Terminal
+            </button>
+            {current.archived ? (
               <button
-                className={`btn ghost${showTerminal ? ' active' : ''}`}
-                onClick={() => setShowTerminal((v) => !v)}
-                title="Toggle terminal"
-              >
-                {showTerminal ? 'Hide terminal' : 'Terminal'}
-              </button>
-              {current.archived ? (
-                <button
-                  className="btn ghost"
-                  onClick={() => setArchived(false)}
-                  disabled={busy}
-                  title="Move back to active conversations"
-                >
-                  Unarchive
-                </button>
-              ) : (
-                <button
-                  className="btn ghost"
-                  onClick={() => setArchived(true)}
-                  disabled={busy}
-                  title="Archive — tears down the SDK session and pty"
-                >
-                  Archive
-                </button>
-              )}
-              <button
-                className="btn stop"
-                onClick={deleteConversation}
+                className="btn ghost"
+                onClick={() => setArchived(false)}
                 disabled={busy}
-                title="Permanently delete the conversation and its Claude Code session file"
+                title="Move back to active conversations"
               >
-                Delete
+                Unarchive
               </button>
-              <button className="btn stop" onClick={stop}>
-                Stop
+            ) : (
+              <button
+                className="btn ghost"
+                onClick={() => setArchived(true)}
+                disabled={busy}
+                title="Archive — tears down the SDK session and pty"
+              >
+                Archive
               </button>
-            </div>
-          </header>
+            )}
+            <button
+              className="btn stop"
+              onClick={deleteConversation}
+              disabled={busy}
+              title="Permanently delete the conversation and its Claude Code session file"
+            >
+              Delete
+            </button>
+            <button className="btn stop" onClick={stop}>
+              Stop
+            </button>
+          </div>
+        </header>
+        <div className={`workspace-split${showTerminal && showChat ? ' with-terminal' : ''}${showTerminal && !showChat ? ' terminal-only' : ''}`}>
+        {showChat && <section className="chat">
           <div className="messages" ref={messagesRef}>
             {blocks.length === 0 && (
               <div className="empty-state">
@@ -680,8 +702,14 @@ export function ChatShell({
               </button>
             </div>
           </div>
-        </section>
+        </section>}
         {showTerminal && <TerminalPanel conversationId={current.id} />}
+        {/* When both are hidden (shouldn't happen, but safety net) */}
+        {!showChat && !showTerminal && (
+          <div className="empty-state">
+            <p>Both panels are hidden. Click Terminal or Show chat to bring one back.</p>
+          </div>
+        )}
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'right' }}>
           last seq: {lastSeq}

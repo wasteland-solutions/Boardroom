@@ -358,9 +358,14 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 22px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(13, 15, 20, 0.5);
+  padding: 14px 22px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  flex-shrink: 0;
 }
 .chat-title {
   font-weight: 600;
@@ -1215,6 +1220,9 @@ code {
 }
 .workspace-split.with-terminal {
   grid-template-columns: minmax(0, 1fr) minmax(420px, 520px);
+}
+.workspace-split.terminal-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* ---------- Terminal panel ---------- */
