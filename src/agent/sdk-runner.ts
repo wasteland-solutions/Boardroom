@@ -1,13 +1,20 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { persistence } from './persistence';
 import type { PermissionBroker } from './permission-broker';
+import { parseWorkspacePath, sshTarget, type RemoteWorkspace } from '../lib/workspace';
 import type {
   McpServerConfig,
   ModelId,
   PermissionMode,
   StreamFrame,
 } from '../lib/types';
+
+// Path to the SSH bridge wrapper script. Resolved relative to the working
+// directory because pnpm dev and pnpm start both run from the repo root,
+// and the Dockerfile keeps the same layout (`scripts/` lives at /app).
+const SSH_WRAPPER_PATH = resolve(process.cwd(), 'scripts', 'boardroom-claude-ssh.mjs');
 
 export type StartOptions = {
   conversationId: string;
@@ -43,10 +50,37 @@ export class ActiveQuery {
   ) {
     const canUseTool = this.broker.createCallback(opts.conversationId, opts.permissionTimeoutMs);
 
+    // Detect remote workspaces. For SSH cwds we point the SDK at our
+    // wrapper binary instead of the bundled claude, then forward host /
+    // remote-cwd / token info via the SDK's per-query env option so the
+    // wrapper can SSH to the right place.
+    const parsed = parseWorkspacePath(opts.cwd);
+    const isRemote = parsed.kind === 'remote';
+    const remote = isRemote ? (parsed as RemoteWorkspace) : null;
+
+    const sshEnv: Record<string, string | undefined> = {};
+    if (remote) {
+      sshEnv.BOARDROOM_SSH_HOST = sshTarget(remote);
+      sshEnv.BOARDROOM_SSH_CWD = remote.path;
+      if (remote.port) sshEnv.BOARDROOM_SSH_PORT = String(remote.port);
+      // CLAUDE_CODE_OAUTH_TOKEN is already set on process.env by
+      // applyCredentials() in worker.ts when authMode === 'claude_code'.
+      // The wrapper picks it up there and smuggles it to the remote via
+      // LC_BOARDROOM_TOKEN. For api_key mode, ANTHROPIC_API_KEY needs to
+      // round-trip the same way — but most ssh hosts also accept LC_*
+      // for that, so we mirror it here too.
+      if (process.env.ANTHROPIC_API_KEY) {
+        sshEnv.LC_BOARDROOM_API_KEY = process.env.ANTHROPIC_API_KEY;
+      }
+    }
+
     this.q = query({
       prompt: this.iterator(),
       options: {
-        cwd: opts.cwd,
+        // For remote workspaces, the wrapper does its own remote `cd`, so
+        // the local cwd just needs to be a real existing directory. Use
+        // process.cwd() as a stable fallback.
+        cwd: remote ? process.cwd() : opts.cwd,
         model: opts.model,
         permissionMode: opts.permissionMode === 'ask' ? 'default' : opts.permissionMode,
         canUseTool,
@@ -56,6 +90,13 @@ export class ActiveQuery {
         tools: { type: 'preset', preset: 'claude_code' },
         includePartialMessages: true,
         abortController: this.abortController,
+        ...(remote
+          ? {
+              pathToClaudeCodeExecutable: SSH_WRAPPER_PATH,
+              executable: 'node' as const,
+              env: { ...process.env, ...sshEnv },
+            }
+          : {}),
         ...(opts.sdkSessionId ? { resume: opts.sdkSessionId, forkSession: false } : {}),
       },
     });

@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../lib/db';
 import { conversations, cwds as cwdsTable } from '../lib/schema';
+import { parseWorkspacePath, sshTarget } from '../lib/workspace';
 
 export type PtyClient = {
   onData: (chunk: string) => void;
@@ -68,14 +69,51 @@ export class PtyManager {
     const allowed = db.select().from(cwdsTable).where(eq(cwdsTable.path, conv.cwd)).get();
     if (!allowed) return null;
 
-    const shell = process.env.SHELL || '/bin/bash';
+    // For remote (ssh://) workspaces we spawn `ssh -tt` instead of a local
+    // shell, so the user lands directly in a real shell session on the
+    // remote host. The local pty cwd just needs to be a stable existing
+    // dir; we use process.cwd() as a fallback.
+    const parsed = parseWorkspacePath(conv.cwd);
+    let command: string;
+    let args: string[];
+    let spawnCwd: string;
+    if (parsed.kind === 'remote') {
+      command = 'ssh';
+      args = [
+        '-tt',
+        '-o',
+        'ServerAliveInterval=30',
+        '-o',
+        'ServerAliveCountMax=3',
+        '-o',
+        'ControlMaster=auto',
+        '-o',
+        `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
+        '-o',
+        'ControlPersist=10m',
+      ];
+      if (parsed.port) {
+        args.push('-p', String(parsed.port));
+      }
+      args.push(sshTarget(parsed));
+      // After login, cd into the remote workspace before handing the
+      // session to the user. The remote shell is still interactive
+      // because we exec the user's $SHELL with -i.
+      args.push('--', `cd ${shellQuote(parsed.path)} && exec $SHELL -l`);
+      spawnCwd = process.cwd();
+    } else {
+      command = process.env.SHELL || '/bin/bash';
+      args = [];
+      spawnCwd = parsed.kind === 'local' ? parsed.path : conv.cwd;
+    }
+
     let proc: pty.IPty;
     try {
-      proc = pty.spawn(shell, [], {
+      proc = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols,
         rows,
-        cwd: conv.cwd,
+        cwd: spawnCwd,
         env: {
           ...process.env,
           TERM: 'xterm-256color',
@@ -121,7 +159,7 @@ export class PtyManager {
       console.log(`[pty-manager] pty exited for ${conversationId} (code ${exitCode})`);
     });
 
-    console.log(`[pty-manager] spawned ${shell} for ${conversationId} in ${conv.cwd}`);
+    console.log(`[pty-manager] spawned ${command} ${args.join(' ')} for ${conversationId} in ${conv.cwd}`);
     return {
       write: (data) => this.safeWrite(session, data),
       resize: (c, r) => this.safeResize(session, c, r),
@@ -191,6 +229,10 @@ export class PtyManager {
       console.error('[pty-manager] resize error:', err);
     }
   }
+}
+
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 export const ptyManager = new PtyManager();

@@ -198,12 +198,15 @@ export function SettingsForm({
       <section>
         <h2>Working directories</h2>
         <div className="banner" style={{ marginBottom: 14 }}>
-          <strong>Running in Docker?</strong> The paths here are{' '}
-          <strong>container-side</strong> paths. Mount your host project into the container first
-          (edit <code>docker-compose.yml</code> — add{' '}
-          <code>- /Users/you/Code/my-app:/workspaces/my-app</code> under the <code>volumes:</code>{' '}
-          block and <code>docker compose up -d</code>), then add the container-side path{' '}
-          (<code>/workspaces/my-app</code>) here.
+          <strong>Local:</strong> absolute path on the Boardroom host
+          (e.g. <code>/Users/you/Code/my-app</code>).<br />
+          <strong>Remote (SSH):</strong> paste an{' '}
+          <code>ssh://user@host[:port]/path/on/remote</code> URI. Boardroom will run{' '}
+          <code>claude</code> on that host via your existing <code>~/.ssh</code> config and the
+          terminal panel will drop you into a real shell there.<br />
+          <strong>Docker:</strong> for local paths, mount your host project into the container
+          first via <code>docker-compose.yml</code>, then add the container-side path
+          (e.g. <code>/workspaces/my-app</code>) here.
         </div>
         {cwdList.length === 0 && (
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 10 }}>
@@ -223,7 +226,7 @@ export function SettingsForm({
         ))}
         <div className="cwd-add">
           <input
-            placeholder="/workspaces/my-app"
+            placeholder="/abs/local/path  or  ssh://user@host/remote/path"
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
           />

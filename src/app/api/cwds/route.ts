@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { cwds } from '@/lib/schema';
+import { parseWorkspacePath } from '@/lib/workspace';
 
 const AddSchema = z.object({
   path: z.string().min(1),
@@ -27,24 +28,39 @@ export async function POST(req: Request) {
   const parsed = AddSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
 
-  const absolute = resolve(parsed.data.path);
-  try {
-    const stat = statSync(absolute);
-    if (!stat.isDirectory()) {
-      return NextResponse.json({ error: 'not a directory' }, { status: 400 });
+  // Workspace path can be either an absolute local path OR an ssh:// URI.
+  // For local paths we still verify the directory exists; for SSH workspaces
+  // we trust the user to know their remote layout (no liveness check on add).
+  const ws = parseWorkspacePath(parsed.data.path);
+  if (ws.kind === 'invalid') {
+    return NextResponse.json({ error: `invalid path: ${ws.reason}` }, { status: 400 });
+  }
+
+  let storedPath: string;
+  if (ws.kind === 'local') {
+    const absolute = resolve(ws.path);
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isDirectory()) {
+        return NextResponse.json({ error: 'not a directory' }, { status: 400 });
+      }
+    } catch {
+      return NextResponse.json({ error: 'path does not exist' }, { status: 400 });
     }
-  } catch {
-    return NextResponse.json({ error: 'path does not exist' }, { status: 400 });
+    storedPath = absolute;
+  } else {
+    // Remote workspaces are stored as the original ssh:// URI string.
+    storedPath = ws.raw;
   }
 
   const db = getDb();
-  const existing = db.select().from(cwds).where(eq(cwds.path, absolute)).get();
+  const existing = db.select().from(cwds).where(eq(cwds.path, storedPath)).get();
   if (existing) {
-    db.update(cwds).set({ label: parsed.data.label }).where(eq(cwds.path, absolute)).run();
+    db.update(cwds).set({ label: parsed.data.label }).where(eq(cwds.path, storedPath)).run();
   } else {
-    db.insert(cwds).values({ path: absolute, label: parsed.data.label }).run();
+    db.insert(cwds).values({ path: storedPath, label: parsed.data.label }).run();
   }
-  return NextResponse.json({ cwd: { path: absolute, label: parsed.data.label } }, { status: 201 });
+  return NextResponse.json({ cwd: { path: storedPath, label: parsed.data.label } }, { status: 201 });
 }
 
 export async function DELETE(req: Request) {

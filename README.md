@@ -150,6 +150,48 @@ The `dev` script runs `next dev` and `tsx watch src/agent/worker.ts` concurrentl
 
 You must configure **at least one** sign-in method: either `BOARDROOM_USERNAME` + `BOARDROOM_PASSWORD`, or the full set of `OIDC_*` vars + one `ALLOWED_OIDC_*`. Both can be enabled at the same time.
 
+## Remote workspaces (SSH)
+
+Workspaces can be either local absolute paths or **SSH URIs**. When you bind a conversation to a remote workspace, Boardroom runs `claude` *on the remote host* over an SSH ControlMaster connection, and the terminal panel drops you into a real interactive shell on the same box.
+
+Add a remote workspace in **Settings → Working directories** with a path like:
+
+```
+ssh://andre@dev.example.com/home/andre/Code/my-app
+ssh://devbox:2222/srv/projects/web
+```
+
+Format is `ssh://[user@]host[:port]/absolute/remote/path`.
+
+### What Boardroom does under the hood
+
+- **Claude:** the SDK is pointed at `scripts/boardroom-claude-ssh.mjs`, a small wrapper that exec's `ssh -o ControlMaster=auto … host -- 'cd /remote/path && exec claude …'`. Stdio is forwarded transparently. Connections are reused via a 10-minute ControlPersist socket so subsequent queries skip the auth handshake.
+- **Terminal:** the pty panel spawns `ssh -tt … host -- 'cd /remote/path && exec $SHELL -l'`, so you land directly in a login shell in the workspace dir.
+
+### Requirements on the remote host
+
+- **`ssh` and an OpenSSH server** that supports `ControlMaster=auto`. Any modern Linux/macOS install works.
+- **`claude` on the login `PATH`** of the user you SSH as. Install with `npm i -g @anthropic-ai/claude-code` (or via your package manager).
+- **Non-interactive key auth.** Boardroom passes `BatchMode=yes` so password prompts aren't possible. Use `ssh-agent`, `~/.ssh/config IdentityFile`, or hardware keys.
+- **`AcceptEnv LC_*`** in `/etc/ssh/sshd_config` *if* you want Boardroom to forward your Anthropic credentials to the remote claude. This is the default on most distros (it's how SSH propagates locale). If your remote uses a stripped-down config, the remote `claude` will fall back to whatever credentials live in `~/.claude` on the remote host.
+- **Claude version compatibility.** The remote claude should be reasonably recent — old versions may not understand the SDK's stream-json protocol.
+
+### Auth on the remote host
+
+Your local Boardroom credentials are forwarded to the remote claude via SSH env-var smuggling:
+
+- **Anthropic API key mode** → forwarded as `LC_BOARDROOM_API_KEY`, unwrapped to `ANTHROPIC_API_KEY` in the wrapper script.
+- **Claude Code subscription mode** → forwarded as `LC_BOARDROOM_TOKEN`, unwrapped to `CLAUDE_CODE_OAUTH_TOKEN`.
+
+If your remote sshd doesn't accept `LC_*`, just configure the remote host's `~/.claude` directly with `claude auth login` once and Boardroom will use whatever's there.
+
+### Limitations
+
+- **No interactive prompts.** Password / passphrase / yes-no host-key prompts will fail. Pre-trust hosts and use key auth.
+- **One ControlMaster per UID.** Two Boardroom processes for the same user will share SSH multiplexing sockets in `/tmp/.boardroom-ssh-*`. Usually fine.
+- **Docker:** to use SSH workspaces from inside the container you need to mount your `~/.ssh` (e.g. `~/.ssh:/home/boardroom/.ssh:ro`) and make sure the `boardroom` user inside the container can read your private key. The container also needs the `ssh` client (already in the image).
+- **Liveness check on add is skipped** — you'll find out the host is unreachable when you try to send a message.
+
 ## Authentication modes
 
 All credentials are pasted into **Settings → Credentials** after sign-in and stored in Boardroom's SQLite data volume. Nothing is mounted from the host. Pick one:

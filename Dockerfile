@@ -9,6 +9,7 @@ RUN apt-get update \
         ca-certificates \
         tini \
         git \
+        openssh-client \
         python3 \
         make \
         g++ \
