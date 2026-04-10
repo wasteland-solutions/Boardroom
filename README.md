@@ -8,15 +8,19 @@ Think iMessage, but the person on the other end is Claude Code — and it can ac
 
 ## Features
 
-- **Multiple conversations in a sidebar.** Each conversation is one Claude Code session. Sessions resume across restarts via the SDK's `resume` option.
-- **Two ways to authenticate with Anthropic.** Paste an Anthropic API key (billed to your Anthropic Console account) *or* a Claude Code OAuth token (billed to your Claude Max / Pro subscription). Both are configured in Settings — no host credential mounts, no env-var gymnastics.
-- **Per-conversation config.** Each conversation is bound to a working directory, a model (Opus / Sonnet / Haiku), and a permission mode (`ask` / `acceptEdits` / `bypassPermissions`).
-- **Inline permission prompts.** In `ask` mode, every tool call that needs approval appears as a message bubble with Approve / Deny buttons. The agent pauses until you respond (or until the configurable timeout fires).
-- **Token streaming.** Assistant responses stream token-by-token over SSE.
-- **Project settings + hooks.** The agent loads `CLAUDE.md`, `.claude/settings.json`, and hooks from the target repo (`settingSources: ['project']`).
-- **MCP servers.** Configure MCP servers in Settings — they're passed straight through to the SDK.
-- **Persistent history.** Every message is stored in SQLite; the UI hydrates from SQLite on page load and SSE reconnects replay missed frames via `Last-Event-ID`.
-- **Pick your auth.** Single-user username + password (set in `.env`) *or* OIDC SSO (Google, Authentik, Keycloak, …), or both at once. Whichever you configure shows up on the sign-in page.
+- **Multiple conversations.** Each one is its own Claude Code session, bound to a working directory, model (Opus / Sonnet / Haiku), and permission mode. Sessions resume across restarts via the SDK's `resume` option.
+- **Local *and* remote workspaces.** A workspace can be a local absolute path or an `ssh://` URI. For SSH workspaces Boardroom runs `claude` on the remote box itself over a `ControlMaster`-multiplexed connection — same agent personality you'd get if you ran `claude` over `ssh` by hand.
+- **Two ways to authenticate with Anthropic.** Paste an Anthropic API key (billed to your Anthropic Console account) *or* a Claude Code OAuth token (billed to your Claude Max / Pro subscription). Stored in SQLite, no host credential mounts.
+- **Inline permission prompts.** In `ask` mode every risky tool call appears as a message bubble with Approve / Deny buttons. The agent pauses until you respond (or until the configurable timeout fires).
+- **Token streaming.** Assistant responses stream token-by-token over SSE, batched with `requestAnimationFrame` so long answers don't wedge the renderer.
+- **Project memory loading on two layers.** Claude Code's built-in `CLAUDE.md` / `.claude/` auto-discovery (driven by `settingSources: ['project']`) *plus* a Boardroom layer that reads any configured workspace memory files (default: `CLAUDE.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `MEMORY.md`, `AGENTS.md`) and prepends them to the system prompt. Both layers read from the *remote* box for SSH workspaces.
+- **Per-conversation custom instructions.** Optional textarea on the new-conversation form. Gets appended to the system prompt for that conversation only — useful for one-off agents without committing files.
+- **Side-panel terminal.** Each conversation has an attached pty in the workspace cwd via xterm.js. For SSH workspaces it's a real shell on the remote box, sharing the same `ControlMaster` socket the agent uses.
+- **Slash command autocomplete.** `/` in the composer opens a popup of available commands — claude-code skills (`/simplify`, `/batch`, `/loop`, …) + Boardroom built-ins (`/clear`, `/archive`, `/info`).
+- **MCP servers.** Configurable JSON in Settings, passed straight through to the SDK.
+- **Archive + permanent delete.** Archive moves a conversation into a collapsible "Archived" group in the sidebar and tears down its SDK session and pty. Delete permanently removes the conversation, its messages, and its on-disk claude-code session transcript (locally with `fs.unlink`, remotely via `ssh + rm`).
+- **Persistent history.** Every message + system frame stored in SQLite. SSE reconnects replay missed frames via `Last-Event-ID`.
+- **Pick your sign-in.** Username + password (set in `.env`) *or* OIDC SSO (Google, Authentik, Keycloak, …), or both at once. Whichever you configure shows up on the sign-in page.
 
 ## Architecture
 
@@ -150,29 +154,39 @@ The `dev` script runs `next dev` and `tsx watch src/agent/worker.ts` concurrentl
 
 You must configure **at least one** sign-in method: either `BOARDROOM_USERNAME` + `BOARDROOM_PASSWORD`, or the full set of `OIDC_*` vars + one `ALLOWED_OIDC_*`. Both can be enabled at the same time.
 
-## Remote workspaces (SSH)
+## Workspaces
 
-Workspaces can be either local absolute paths or **SSH URIs**. When you bind a conversation to a remote workspace, Boardroom runs `claude` *on the remote host* over an SSH ControlMaster connection, and the terminal panel drops you into a real interactive shell on the same box.
+A workspace is the directory the agent operates in. It can be local or remote.
 
-Add a remote workspace in **Settings → Working directories** with a path like:
+### Local workspaces
 
-```
-ssh://andre@dev.example.com/home/andre/Code/my-app
-ssh://devbox:2222/srv/projects/web
-```
+Add an absolute path in **Settings → Working directories** (or click **Browse** to navigate the local filesystem). Boardroom will validate that the path exists and is a directory before saving. The agent's `cwd` for any conversation bound to this workspace is exactly that path.
 
-Format is `ssh://[user@]host[:port]/absolute/remote/path`.
+### Remote workspaces (SSH)
+
+When you bind a conversation to an SSH workspace, Boardroom runs `claude` *on the remote host* over an SSH `ControlMaster`-multiplexed connection. The terminal panel drops you into a real interactive shell on the same box.
+
+Add a remote workspace by either:
+
+- **Filling the Host + Path fields separately** in Settings — Host is `[user@]host[:port]` (or an alias from your `~/.ssh/config`), Path is the absolute remote path. Click **Browse** to navigate the remote filesystem via SSH.
+- **Pasting a URI** into the Path field directly. Two shapes are supported:
+  ```
+  ssh://[user@]host[:port]/absolute/remote/path
+  [user@]host:/absolute/remote/path
+  ```
+  The second form is the rsync/scp short form. Local absolute paths take priority, so a local path with a colon in the name still parses as local.
 
 ### What Boardroom does under the hood
 
-- **Claude:** the SDK is pointed at `scripts/boardroom-claude-ssh.mjs`, a small wrapper that exec's `ssh -o ControlMaster=auto … host -- 'cd /remote/path && exec claude …'`. Stdio is forwarded transparently. Connections are reused via a 10-minute ControlPersist socket so subsequent queries skip the auth handshake.
-- **Terminal:** the pty panel spawns `ssh -tt … host -- 'cd /remote/path && exec $SHELL -l'`, so you land directly in a login shell in the workspace dir.
+- **Claude:** the SDK is pointed at `scripts/boardroom-claude-ssh.mjs`, a small wrapper that exec's `ssh -o ControlMaster=auto … host -- bash --noprofile --norc -c 'eval "$(printf %s … | base64 -d)"'`. The decoded remote script captures the user's interactive-login `PATH` from a separate `bash -lic` subshell (whose stdout is captured into a variable, so shell init noise like p10k instant prompt or `.bashrc` echos can't corrupt the SDK protocol stream), then `cd`s into the workspace and exec's `claude` with the SDK's args. Stdio flows through ssh transparently. Connections are reused via a 10-minute `ControlPersist` socket so subsequent queries skip the handshake.
+- **Terminal:** the pty panel spawns `ssh -tt … host -- 'cd <cwd> && exec $SHELL -l'`, sharing the same `ControlMaster` socket as the SDK wrapper.
+- **Browse:** the directory picker uses `ssh + ls -1Ap` over the same socket, so navigating the remote filesystem is sub-second on a warm connection.
 
-### Requirements on the remote host
+### SSH workspace requirements
 
-- **`ssh` and an OpenSSH server** that supports `ControlMaster=auto`. Any modern Linux/macOS install works.
+- **`ssh` + `OpenSSH` server** that supports `ControlMaster=auto`. Any modern Linux/macOS install works.
 - **`claude` authenticated on the remote** via `claude auth login` (or with an `ANTHROPIC_API_KEY` set in the user's shell rc files). Boardroom does *not* forward credentials — see [Auth on the remote host](#auth-on-the-remote-host) below.
-- **`claude` on the login `PATH`** of the user you SSH as. Install with `npm i -g @anthropic-ai/claude-code` (or via your package manager). The wrapper invokes `bash -lic` on the remote — login + interactive — so anything `.bashrc` puts on PATH (nvm, asdf, mise, `~/.local/bin`, etc.) will be visible. If your remote shell is exotic or your PATH lives somewhere weird, run `bash -lic "which claude"` on the remote to verify.
+- **`claude` on the login `PATH`** of the user you SSH as. Install with `npm i -g @anthropic-ai/claude-code` (or via your package manager). The wrapper invokes the remote shell as `bash --noprofile --norc -c '…'` for the spawn but captures the user's interactive-login PATH from a separate `bash -lic` subshell at session start — so anything `.bashrc` puts on PATH (nvm, asdf, mise, `~/.local/bin`, …) will be visible even when the user's `.bashrc` writes to stdout. If your remote shell is exotic or your PATH lives somewhere weird, run `bash -lic "which claude"` on the remote to verify.
 - **Non-interactive key auth.** Boardroom passes `BatchMode=yes` so password prompts aren't possible. Use `ssh-agent`, `~/.ssh/config IdentityFile`, or hardware keys.
 - **Claude version compatibility.** The remote claude should be reasonably recent — old versions may not understand the SDK's stream-json protocol.
 
@@ -189,27 +203,36 @@ Why this design:
 
 The wrapper script explicitly strips `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` from the env it hands to `ssh`, so the local Boardroom worker's credentials can never accidentally leak across the wire even if you set them.
 
-If you have a need to use the local account on the remote (e.g. you want billing to go to your local Max sub instead of the remote's account), set `CLAUDE_CODE_OAUTH_TOKEN` directly in the remote user's `~/.bashrc` and we'll pick it up via the same `bash -lic` that handles PATH.
+If you want to use a *local* account on the remote (e.g. your local Max sub instead of the remote's account), set `CLAUDE_CODE_OAUTH_TOKEN` directly in the remote user's `~/.bashrc` and the agent will pick it up via the same login-shell PATH capture.
 
-### Giving the agent a custom identity / project context
+### SSH limitations
 
-Boardroom passes `settingSources: ['project']` to the SDK — **only the workspace's own files**, not the user's `~/.claude/`. This is a deliberate scope choice: each Boardroom workspace is meant to be self-contained, so the same workspace mounted on a different host gives you the same agent regardless of whose `~/.claude/CLAUDE.md` lives there. If you want personal global rules they should live in the workspace, not in your home dir.
+- **No interactive prompts.** Password / passphrase / yes-no host-key prompts will fail. Pre-trust hosts and use key auth.
+- **One ControlMaster per UID.** Two Boardroom processes for the same user share SSH multiplexing sockets in `/tmp/.boardroom-ssh-*`. Usually fine.
+- **Docker:** to use SSH workspaces from inside the container you need to mount your `~/.ssh` (e.g. `~/.ssh:/home/boardroom/.ssh:ro`) and make sure the `boardroom` user inside the container can read your private key. The container also needs the `ssh` client (already in the image).
+- **Liveness check on add is skipped** — you'll find out the host is unreachable when you try to send a message.
 
-There are **two layers** of context loading, both scoped to the workspace:
+## Giving the agent a custom identity / project context
 
-#### 1. Claude Code's built-in auto-discovery (driven by `settingSources: ['project']`)
+Boardroom passes `settingSources: ['project']` to the SDK — **only the workspace's own files**, not the user's `~/.claude/`. This is a deliberate scope choice: each Boardroom workspace is self-contained, so the same workspace mounted on a different host gives you the same agent regardless of whose `~/.claude/CLAUDE.md` lives there. Personal global rules should live in the workspace, not in your home dir.
 
-Walked up from the cwd to the workspace root by claude-code itself:
+There are **three** ways to feed identity / project context to the agent. You can mix and match — they stack on top of each other.
 
-- `CLAUDE.md` — the agent's persistent memory / identity / conventions
+### 1. Claude Code's built-in auto-discovery
+
+Driven by `settingSources: ['project']`. claude-code walks up from the cwd looking for:
+
+- `CLAUDE.md` — claude-code's standard memory file
 - `.claude/settings.json` — project settings + hooks
 - `.claude/agents/*` — custom subagents
 - `.claude/commands/*` — custom slash commands
 - `.claude/skills/*` — custom skills
 
-#### 2. Boardroom's "workspace memory files"
+This is the only layer that knows about hooks, subagents, and the standard `.claude/` tree.
 
-Configured in **Settings → Workspace memory files**, default list:
+### 2. Boardroom's "workspace memory files"
+
+Configured in **Settings → Workspace memory files**. Default list:
 
 ```
 CLAUDE.md
@@ -220,35 +243,70 @@ MEMORY.md
 AGENTS.md
 ```
 
-Boardroom reads any of these that exist at the workspace root and prepends their contents to claude_code's system prompt via the SDK's `systemPrompt: { append: ... }` option. This is how you give an agent a custom identity using filenames claude-code's auto-discovery doesn't know about. The list is editable per-installation (one filename per line in Settings).
+Boardroom reads any of these that exist at the workspace root and prepends their contents to the system prompt via the SDK's `systemPrompt: { append: … }` option. This is how you use *custom memory file conventions* (`SOUL.md`, `IDENTITY.md`, …) that claude-code's auto-discovery doesn't know about. The list is editable in Settings (one filename per line, lines starting with `#` are ignored).
 
-**For SSH workspaces** both layers read from the **remote** workspace, not from your local Boardroom host. claude-code's auto-discovery happens because the wrapper cd's into the remote box; Boardroom's memory loader runs `ssh + cat` over the existing ControlMaster connection. Combined memory file content is capped at 256KB so a runaway file can't blow out the prompt.
+Combined memory file content is hard-capped at **256KB** so a runaway file can't blow out the prompt.
 
-You can *also* give a conversation a custom personality directly in Boardroom without writing any files: the **New conversation** form has a "Custom instructions" textarea that gets appended to claude_code's preset system prompt for that conversation only. Useful when you want one-off agents (e.g. "review this PR as a security pedant") without committing a CLAUDE.md.
+For local workspaces files are read from disk via `fs.readFileSync`. For SSH workspaces a single `ssh + bash` invocation walks the filename list and `cat`s any that exist, reusing the existing `ControlMaster` socket — sub-second on a warm connection.
 
-If you'd rather use a `CLAUDE.md` for a specific project, drop it in the workspace root:
+### 3. Per-conversation custom instructions
 
-```markdown
-# Larry — assistant for the Clawd project
+The new-conversation form has a **Custom instructions (optional)** textarea. Whatever you type gets stored on the conversation row and appended to the system prompt for that conversation only. Doesn't touch any files. Useful for one-off agents like *"review this PR as a security pedant"* without committing anything to the workspace.
 
-You are Larry, the in-house assistant for Clawd. When asked who you are,
-introduce yourself as Larry.
+### How they stack
 
-## Project conventions
-- All Python files use 4-space indentation.
-- New API endpoints go under `app/api/` and require pytest coverage.
-- Migrations live in `db/migrations/` and are managed by alembic.
+The final system prompt that the SDK assembles is:
+
+```
+<claude_code preset system prompt>
+
+<workspace memory files, joined with `===== <filename> =====` headers>
+
+<per-conversation custom instructions>
 ```
 
-Claude Code auto-discovers this file on session start and prepends it to the system prompt. For SSH workspaces, the file lives on the remote host (e.g. `larry:/home/ubuntu/clawd/CLAUDE.md`); the wrapper cd's into that directory before exec'ing claude, so auto-discovery works the same way.
+Plus whatever claude-code's own auto-discovery layer adds at runtime (`.claude/agents/*` etc).
 
-You can confirm what the agent loaded by inspecting the persisted `system` rows in `data/boardroom.db`:
+### Confirming what was actually loaded
+
+Boardroom persists every SDK `system` frame to SQLite (including the init payload that lists tools, MCP server status, and slash commands). To inspect:
 
 ```bash
-sqlite3 data/boardroom.db "SELECT content FROM messages WHERE role='system' AND sdk_message_type='system:init' ORDER BY seq DESC LIMIT 1" | python3 -m json.tool
+sqlite3 data/boardroom.db \
+  "SELECT content FROM messages WHERE role='system' AND sdk_message_type='system:init' ORDER BY seq DESC LIMIT 1" \
+  | python3 -m json.tool
 ```
 
-### Limitations
+The init frame only fires for *fresh* SDK sessions, not resumed ones. If you want to see it, **Stop** the conversation in the UI first to force the next message to spin up a new query.
+
+## Per-conversation features
+
+### Side-panel terminal
+
+Click **Terminal** in the chat header to open a real terminal in the conversation's workspace, side-by-side with the chat. Backed by `xterm.js` on the client and `node-pty` in the worker. Reuses the same SSH `ControlMaster` socket as the agent for remote workspaces, so opening the panel is sub-second on a warm connection.
+
+The pty is per-conversation and survives a 30s grace period after the last client disconnects (so a page reload doesn't kill your shell). 1h idle timeout after that.
+
+### Slash commands
+
+Type `/` as the first character of the composer to open an autocomplete popup. Two sources are merged into one list with badges:
+
+- **Skills (from `Query.supportedCommands()`)** — anything claude-code's skill discovery exposes for the current session, including bundled skills (`/simplify`, `/batch`, `/loop`, `/schedule`, …) and any project-level skills under `.claude/skills/`.
+- **Boardroom built-ins** — local-only commands handled client-side, never sent to claude:
+  - `/clear` — fork a fresh conversation in the same workspace (same model / mode / instructions)
+  - `/archive` — archive the current conversation
+  - `/info` — inject a synthetic info row showing the current session's config
+
+Up/Down navigates, Tab/Enter inserts, Escape dismisses. The popup auto-scrolls when you walk past the visible area.
+
+### Archive + delete
+
+The chat header has **Archive** / **Unarchive** and **Delete** buttons.
+
+- **Archive** moves the conversation into a collapsible "Archived" group at the bottom of the sidebar and tears down its SDK session and pty (so it stops holding worker resources). Unarchive lazily resumes via the persisted `sdk_session_id`.
+- **Delete** is permanent: removes the row + all its messages + all its pending permission rows (cascading via foreign keys), AND best-effort deletes the on-disk claude-code session transcript (`fs.unlink` for local, `ssh + rm -f` for remote). After confirming, you're routed to the next active conversation.
+
+The archived group's expand/collapse state is persisted to `localStorage` so it survives navigation.
 
 - **No interactive prompts.** Password / passphrase / yes-no host-key prompts will fail. Pre-trust hosts and use key auth.
 - **One ControlMaster per UID.** Two Boardroom processes for the same user will share SSH multiplexing sockets in `/tmp/.boardroom-ssh-*`. Usually fine.
@@ -313,28 +371,51 @@ Set the default in Settings and override per-conversation on creation:
 
 ```
 src/
-  agent/          Standalone Node worker that owns the Claude Agent SDK
-    worker.ts        Entry: Unix socket server, session manager, graceful shutdown
-    sdk-runner.ts    query() wrapper, streaming input, token pumping, tool events
-    permission-broker.ts  canUseTool → Promise + timeout + abort
-    session-manager.ts    Per-conversation Query map with idle sweep
-    persistence.ts   Monotonic seq + SQLite writes
-    rpc.ts           JSONL Unix-socket RPC server + fanout
-  app/            Next.js App Router (frontend + route handlers)
+  agent/                          Standalone Node worker that owns the Claude Agent SDK
+    worker.ts                     Entry: Unix socket server, session manager, graceful shutdown
+    sdk-runner.ts                 query() wrapper, streaming input, token pumping, tool events,
+                                  workspace memory file loader (local fs / ssh + cat)
+    permission-broker.ts          canUseTool → Promise + timeout + abort
+    session-manager.ts            Per-conversation Query map with idle sweep + dead-session evict
+    persistence.ts                Monotonic seq + SQLite writes
+    pty-manager.ts                node-pty per conversation, local shell or ssh -tt to remote
+    ws-server.ts                  Terminal WebSocket server on AGENT_WORKER_WS_PORT (default 8099)
+    rpc.ts                        JSONL Unix-socket RPC server + fanout
+  app/                            Next.js App Router (frontend + route handlers)
     api/
-      stream/[conversationId]/    SSE stream (Last-Event-ID replay)
-      input/[conversationId]/     POST: send | permission_reply | interrupt
-      conversations/              CRUD
-      settings/                   GET/PUT app settings
-      cwds/                       Working directory allowlist
-      auth/[...nextauth]/         Auth.js OIDC handlers
-    c/[conversationId]/page.tsx   Chat view
-    settings/page.tsx             Settings view
-  components/     ChatShell, SettingsForm, etc.
-  lib/            db, schema, types, auth, agent-client (RPC), bus, settings-store
-  middleware.ts   Auth.js route protection
-drizzle/          Generated migrations
-scripts/          migrate.ts + start.mjs (prod entrypoint)
+      stream/[conversationId]/     SSE stream (Last-Event-ID replay)
+      input/[conversationId]/      POST: send | permission_reply | interrupt
+      terminal/[conversationId]/   POST: mint a short-lived HMAC token for the WebSocket
+      conversations/               CRUD + slash-commands subroute
+      browse/                      POST: directory picker (local fs / ssh + ls)
+      cwds/                        Working directory allowlist
+      settings/                    GET/PUT app settings
+      auth/[...nextauth]/          Auth.js handlers
+    c/[conversationId]/page.tsx    Chat view
+    settings/page.tsx              Settings view
+    signin/page.tsx                Sign-in page (OIDC + credentials)
+  components/
+    ChatShell.tsx                  Main app shell: sidebar, chat pane, slash autocomplete
+    TerminalPanel.tsx              xterm.js side panel
+    DirectoryBrowser.tsx           Filesystem picker modal
+    SettingsForm.tsx               Settings page UI
+  lib/
+    schema.ts                     Drizzle tables
+    db.ts                         better-sqlite3 + Drizzle singleton
+    auth.ts / auth.config.ts      Auth.js v5 — full + edge-safe variants
+    agent-client.ts               JSONL Unix-socket RPC client used by route handlers
+    bus.ts                        In-process EventEmitter for SSE fanout
+    types.ts                      Shared wire types
+    settings-store.ts             AppSettings persistence
+    terminal-token.ts             HMAC token mint/verify for the terminal WebSocket
+    workspace.ts                  Workspace path parser (local / ssh:// / short form)
+  middleware.ts                   Auth.js route protection
+drizzle/                          Generated migrations
+scripts/
+  start.mjs                       Production entrypoint (runs migrations, spawns worker + Next)
+  migrate.ts                      Manual migration runner
+  boardroom-claude-ssh.mjs        SSH bridge wrapper used as pathToClaudeCodeExecutable
+  fix-node-pty.mjs                Postinstall: chmod +x node-pty's spawn-helper after pnpm extract
 Dockerfile
 docker-compose.yml
 ```

@@ -1,6 +1,6 @@
 // Workspace path parser. A workspace can be:
 //
-//   - a local absolute path:        /Users/andre/Code/foo
+//   - a local absolute path:        /Users/you/Code/foo
 //   - an SSH URI:                   ssh://user@host[:port]/abs/remote/path
 //
 // We store whichever the user gave us as a string in the `cwds.path` column,
@@ -164,8 +164,8 @@ export function describeWorkspace(input: string): string {
 }
 
 // Convert an absolute path into the slug claude-code uses to namespace
-// session files: every `/` is replaced with `-`. So `/Users/andre/foo`
-// becomes `-Users-andre-foo`. The session file lives at
+// session files: every `/` is replaced with `-`. So `/Users/you/foo`
+// becomes `-Users-you-foo`. The session file lives at
 // `~/.claude/projects/{slug}/{sessionId}.jsonl`.
 export function claudeProjectSlug(absPath: string): string {
   return absPath.replace(/\//g, '-');

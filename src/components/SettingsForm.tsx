@@ -216,9 +216,10 @@ export function SettingsForm({
         <h2>Working directories</h2>
         <div className="banner" style={{ marginBottom: 14 }}>
           <strong>Local:</strong> leave Host blank, Path is an absolute local path
-          (e.g. <code>/Users/you/Code/my-app</code>).<br />
+          (e.g. <code>/path/to/your/project</code>).<br />
           <strong>Remote (SSH):</strong> Host is <code>user@host[:port]</code>
-          (e.g. <code>ubuntu@172.16.0.5</code>), Path is the absolute remote path.
+          (e.g. <code>user@host.example.com</code> or an alias from your{' '}
+          <code>~/.ssh/config</code>), Path is the absolute remote path.
           Click <strong>Browse</strong> to navigate via SSH instead of typing.<br />
           <strong>Docker:</strong> for local paths, mount your host project into the container
           first via <code>docker-compose.yml</code>, then add the container-side path
