@@ -48,12 +48,9 @@ export interface AppSettings {
   defaultPermissionMode: PermissionMode;
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number; // 0 = hold forever
-  // Files at the workspace root that Boardroom reads and prepends to the
-  // SDK's systemPrompt.append at session start. Lets users use custom
-  // memory conventions (SOUL.md, IDENTITY.md, ...) that claude-code's
-  // built-in CLAUDE.md auto-discovery doesn't know about. Read from the
-  // local fs for local workspaces and via `ssh + cat` for remote ones.
-  workspaceMemoryFiles: string[];
+  // OpenAI API key for Codex conversations (pasted in Settings, stored
+  // encrypted in SQLite like the Anthropic key).
+  openaiApiKey: string;
 }
 
 // Mirrors the shape expected by Claude Agent SDK's `mcpServers` option.
@@ -83,14 +80,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPermissionMode: 'ask',
   mcpServers: {},
   permissionTimeoutMs: 5 * 60 * 1000,
-  workspaceMemoryFiles: [
-    'CLAUDE.md',
-    'SOUL.md',
-    'IDENTITY.md',
-    'TOOLS.md',
-    'MEMORY.md',
-    'AGENTS.md',
-  ],
+  openaiApiKey: '',
 };
 
 // --- Server → Client SSE frames ---
@@ -188,8 +178,7 @@ export type WorkerRpcRequest =
       authMode: AuthMode;
       anthropicApiKey: string;
       claudeCodeOauthToken: string;
-      systemPromptAppend: string | null;
-      workspaceMemoryFiles: string[];
+      openaiApiKey: string;
     }
   | { id: string; op: 'send_user_message'; conversationId: string; text: string }
   | { id: string; op: 'set_permission_mode'; conversationId: string; mode: PermissionMode }

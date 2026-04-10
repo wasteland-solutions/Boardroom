@@ -16,7 +16,6 @@ const CreateSchema = z.object({
   provider: z.enum(['claude', 'codex']).optional(),
   model: z.enum(DEFAULT_MODELS as [ModelId, ...ModelId[]]).optional(),
   permissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
-  systemPromptAppend: z.string().max(8192).optional(),
 });
 
 export async function GET(req: Request) {
@@ -71,7 +70,6 @@ export async function POST(req: Request) {
       model: parsed.data.model ?? (provider === 'codex' ? 'o4-mini' : settings.defaultModel),
       permissionMode: (parsed.data.permissionMode ?? settings.defaultPermissionMode) as PermissionMode,
       sdkSessionId: null,
-      systemPromptAppend: parsed.data.systemPromptAppend?.trim() || null,
       createdAt: now,
       updatedAt: now,
       archived: false,

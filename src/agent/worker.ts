@@ -81,6 +81,10 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
         anthropicApiKey: req.anthropicApiKey,
         claudeCodeOauthToken: req.claudeCodeOauthToken,
       });
+      // Make the OpenAI key available to the codex runner via process.env.
+      if (req.openaiApiKey) {
+        process.env.OPENAI_API_KEY = req.openaiApiKey;
+      }
       const session = sessions.startOrResume({
         conversationId: req.conversationId,
         cwd: req.cwd,
@@ -90,8 +94,6 @@ async function handle(req: WorkerRpcRequest): Promise<unknown> {
         sdkSessionId: req.sdkSessionId,
         mcpServers: req.mcpServers,
         permissionTimeoutMs: req.permissionTimeoutMs,
-        systemPromptAppend: req.systemPromptAppend,
-        workspaceMemoryFiles: req.workspaceMemoryFiles,
       });
       return { conversationId: session.conversationId };
     }

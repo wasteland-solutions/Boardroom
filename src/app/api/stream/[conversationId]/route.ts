@@ -50,8 +50,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ conversationId:
       authMode: appSettings.authMode,
       anthropicApiKey: appSettings.anthropicApiKey,
       claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
-      systemPromptAppend: conv.systemPromptAppend,
-      workspaceMemoryFiles: appSettings.workspaceMemoryFiles,
+      openaiApiKey: appSettings.openaiApiKey,
     });
   } catch (err) {
     console.error('[stream] start_or_resume failed:', err);

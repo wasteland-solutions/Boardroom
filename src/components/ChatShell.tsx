@@ -316,7 +316,6 @@ export function ChatShell({
               cwd: current.cwd,
               model: current.model,
               permissionMode: current.permissionMode,
-              systemPromptAppend: current.systemPromptAppend ?? undefined,
             }),
           });
           if (!res.ok) throw new Error(await res.text());
@@ -343,7 +342,6 @@ export function ChatShell({
           `cwd: ${current.cwd}`,
           `sdk_session_id: ${current.sdkSessionId ?? '(not started yet)'}`,
           `archived: ${current.archived}`,
-          `system_prompt_append: ${current.systemPromptAppend ? `\n${current.systemPromptAppend}` : '(none)'}`,
         ];
         setBlocks((prev) => [
           ...prev,
@@ -861,7 +859,6 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
   const [provider, setProvider] = useState<Provider>('claude');
   const [model, setModel] = useState<ModelId>('claude-opus-4-6');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask');
-  const [systemPromptAppend, setSystemPromptAppend] = useState('');
   const [busy, setBusy] = useState(false);
 
   const models = provider === 'codex' ? CODEX_MODELS : CLAUDE_MODELS;
@@ -892,7 +889,6 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
           provider,
           model,
           permissionMode,
-          systemPromptAppend: systemPromptAppend.trim() || undefined,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -961,21 +957,6 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
             <option value="acceptEdits">acceptEdits — auto-approve file edits</option>
             <option value="bypassPermissions">bypassPermissions — full auto</option>
           </select>
-        </label>
-        <label>
-          <span>Custom instructions (optional)</span>
-          <textarea
-            value={systemPromptAppend}
-            onChange={(e) => setSystemPromptAppend(e.target.value)}
-            placeholder={'e.g. "You are Larry, the assistant for the Clawd project. When asked who you are, introduce yourself as Larry. Project conventions: ..."'}
-            rows={6}
-            style={{ minHeight: 120, fontFamily: 'inherit', fontSize: 13 }}
-          />
-          <span className="hint">
-            Appended to Claude Code&apos;s standard system prompt for this conversation.
-            Lets you give the agent a custom identity or project rules without writing
-            a CLAUDE.md on the host. Editable later from the chat header.
-          </span>
         </label>
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
           <button className="btn" onClick={() => submit('chat')} disabled={busy || !cwd}>

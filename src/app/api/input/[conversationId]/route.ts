@@ -52,8 +52,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ conversationId
       authMode: appSettings.authMode,
       anthropicApiKey: appSettings.anthropicApiKey,
       claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
-      systemPromptAppend: conv.systemPromptAppend,
-      workspaceMemoryFiles: appSettings.workspaceMemoryFiles,
+      openaiApiKey: appSettings.openaiApiKey,
     });
     await agentClient.call({ op: 'send_user_message', conversationId, text: input.text });
     return NextResponse.json({ ok: true });

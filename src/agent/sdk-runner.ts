@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { SpawnOptions as SdkSpawnOptions } from '@anthropic-ai/claude-agent-sdk';
@@ -23,17 +22,8 @@ export type StartOptions = {
   sdkSessionId: string | null;
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number;
-  systemPromptAppend: string | null;
-  // Filenames at the workspace root that we read at session start and
-  // prepend to the system prompt. Defaults are set in DEFAULT_SETTINGS;
-  // user can override in Settings.
-  workspaceMemoryFiles: string[];
 };
 
-// Cap on combined memory file content (in characters, not tokens) so a
-// runaway file doesn't blow out the system prompt or wedge the SSH
-// transport. ~256KB ≈ ~65k tokens; well under any model's context.
-const MAX_MEMORY_BYTES = 256 * 1024;
 
 // One ActiveQuery per conversation. Owns the bounded async queue that feeds
 // SDKUserMessage's into the SDK, the reader loop that drains SDKMessages out,
@@ -625,132 +615,6 @@ function spawnSshClaude(
   // complains because ChildProcess types stdin as `Writable | null` —
   // we know it's non-null here because of the pipe stdio config.
   return child as unknown as import('@anthropic-ai/claude-agent-sdk').SpawnedProcess;
-}
-
-// Read configured workspace memory files (e.g. CLAUDE.md, SOUL.md,
-// IDENTITY.md) from the workspace root and concatenate their contents
-// into a single string with `===== <filename> =====` headers between
-// them. Returns the empty string when nothing is found.
-//
-// For local workspaces this is a straight `fs.readFileSync` per file.
-// For SSH workspaces we batch all the file reads into a single ssh
-// invocation that uses a tiny remote bash loop to print existing files
-// with our header markers — one connection (warm via ControlMaster),
-// no extra round-trips.
-//
-// Anything that fails for any reason returns an empty string. We never
-// throw — bad memory files should not block the conversation from
-// starting.
-function loadWorkspaceMemory(
-  workspace: ReturnType<typeof parseWorkspacePath>,
-  files: string[],
-): string {
-  if (!files || files.length === 0) return '';
-
-  // Reject anything with path separators or upward traversal — we only
-  // load files at the workspace root, never wander into subdirs.
-  const safeFiles = files.filter(
-    (f) => f && !f.includes('/') && !f.includes('\\') && !f.includes('..'),
-  );
-  if (safeFiles.length === 0) return '';
-
-  if (workspace.kind === 'local') {
-    return loadLocalMemory(workspace.path, safeFiles);
-  }
-  if (workspace.kind === 'remote') {
-    return loadRemoteMemory(workspace, safeFiles);
-  }
-  return '';
-}
-
-function loadLocalMemory(cwd: string, files: string[]): string {
-  const sections: string[] = [];
-  let total = 0;
-  for (const name of files) {
-    const path = join(cwd, name);
-    if (!existsSync(path)) continue;
-    let content: string;
-    try {
-      content = readFileSync(path, 'utf8');
-    } catch (err) {
-      console.warn(`[workspace-memory] failed to read ${path}:`, err);
-      continue;
-    }
-    // Stop adding once we'd exceed the budget; the SDK has limits and
-    // dragging in a 5MB file would just OOM the prompt.
-    if (total + content.length > MAX_MEMORY_BYTES) {
-      console.warn(
-        `[workspace-memory] truncating after ${name} — combined memory > ${MAX_MEMORY_BYTES} bytes`,
-      );
-      break;
-    }
-    sections.push(`===== ${name} =====\n${content.trim()}`);
-    total += content.length;
-  }
-  return sections.join('\n\n');
-}
-
-function loadRemoteMemory(workspace: RemoteWorkspace, files: string[]): string {
-  // Build a tiny remote bash script that walks the configured filename
-  // list, prints a marker before each existing file, then dumps it.
-  // The shell-quote the filenames so weird chars in user-configured
-  // names can't escape.
-  const quoted = files.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(' ');
-  const remoteScript =
-    `cd '${workspace.path.replace(/'/g, "'\\''")}' 2>/dev/null || exit 0; ` +
-    `for f in ${quoted}; do ` +
-    `  if [ -f "$f" ]; then ` +
-    `    printf '<<<BR_FILE:%s>>>\\n' "$f"; ` +
-    `    cat "$f"; ` +
-    `    printf '\\n<<<BR_END>>>\\n'; ` +
-    `  fi; ` +
-    `done`;
-
-  const sshArgs = [
-    '-o', 'BatchMode=yes',
-    '-o', 'ConnectTimeout=10',
-    '-o', 'ServerAliveInterval=30',
-    '-o', 'ControlMaster=auto',
-    '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
-    '-o', 'ControlPersist=10m',
-  ];
-  if (workspace.port) sshArgs.push('-p', String(workspace.port));
-  sshArgs.push(sshTarget(workspace), '--', remoteScript);
-
-  let stdout: Buffer;
-  try {
-    stdout = execFileSync('ssh', sshArgs, {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: MAX_MEMORY_BYTES * 2,
-      timeout: 15_000,
-    });
-  } catch (err) {
-    console.warn(
-      `[workspace-memory] ssh-cat failed for ${sshTarget(workspace)}:${workspace.path}:`,
-      (err as Error).message,
-    );
-    return '';
-  }
-
-  const text = stdout.toString('utf8');
-  const sections: string[] = [];
-  let total = 0;
-  // Parse <<<BR_FILE:name>>>...<<<BR_END>>> blocks.
-  const re = /<<<BR_FILE:([^>]+)>>>\n([\s\S]*?)\n<<<BR_END>>>/g;
-  let match;
-  while ((match = re.exec(text)) !== null) {
-    const name = match[1];
-    const body = match[2];
-    if (total + body.length > MAX_MEMORY_BYTES) {
-      console.warn(
-        `[workspace-memory] truncating remote memory after ${name} — combined > ${MAX_MEMORY_BYTES} bytes`,
-      );
-      break;
-    }
-    sections.push(`===== ${name} =====\n${body.trim()}`);
-    total += body.length;
-  }
-  return sections.join('\n\n');
 }
 
 // Convert raw SDK errors into user-facing message strings. Most SDK errors

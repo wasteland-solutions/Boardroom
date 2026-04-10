@@ -23,10 +23,7 @@ const PatchSchema = z.object({
   defaultPermissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
   mcpServers: z.record(McpServerSchema).optional(),
   permissionTimeoutMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional(),
-  workspaceMemoryFiles: z
-    .array(z.string().min(1).max(255).regex(/^[^/\\]+$/, 'no slashes — workspace-root files only'))
-    .max(64)
-    .optional(),
+  openaiApiKey: z.string().max(512).optional(),
 });
 
 export async function GET() {

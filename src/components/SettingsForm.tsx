@@ -21,9 +21,6 @@ export function SettingsForm({
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [mcpText, setMcpText] = useState(JSON.stringify(initialSettings.mcpServers, null, 2));
   const [mcpError, setMcpError] = useState<string | null>(null);
-  const [memoryFilesText, setMemoryFilesText] = useState(
-    initialSettings.workspaceMemoryFiles.join('\n'),
-  );
   const [cwdList, setCwdList] = useState<Cwd[]>(initialCwds);
   const [newHost, setNewHost] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -45,11 +42,6 @@ export function SettingsForm({
       return;
     }
     try {
-      const memoryFiles = memoryFilesText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith('#'));
-
       const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -61,7 +53,7 @@ export function SettingsForm({
           defaultPermissionMode: settings.defaultPermissionMode,
           mcpServers: parsedMcp,
           permissionTimeoutMs: settings.permissionTimeoutMs,
-          workspaceMemoryFiles: memoryFiles,
+          openaiApiKey: settings.openaiApiKey,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -169,6 +161,25 @@ export function SettingsForm({
             </span>
           </label>
         )}
+
+        <label style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          <span>OpenAI API key (for Codex conversations)</span>
+          <input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="sk-..."
+            value={settings.openaiApiKey}
+            onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
+          />
+          <span className="hint">
+            Required for Codex conversations. Get one from{' '}
+            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
+              platform.openai.com
+            </a>. Stored encrypted in SQLite. Alternatively, Codex can use its own OAuth
+            login (<code>codex login</code> on the host) and this field can be left blank.
+          </span>
+        </label>
       </section>
 
       <section>
@@ -299,30 +310,6 @@ export function SettingsForm({
           onClose={() => setBrowserOpen(false)}
         />
       )}
-
-      <section>
-        <h2>Workspace memory files</h2>
-        <label>
-          <span>Filenames at the workspace root that Boardroom reads at session start</span>
-          <textarea
-            value={memoryFilesText}
-            onChange={(e) => setMemoryFilesText(e.target.value)}
-            spellCheck={false}
-            rows={8}
-            placeholder={'CLAUDE.md\nSOUL.md\nIDENTITY.md\nTOOLS.md\nMEMORY.md\nAGENTS.md'}
-          />
-          <span className="hint">
-            One filename per line. Files at <code>&lt;workspace&gt;/&lt;name&gt;</code> are read on
-            every session start and prepended to claude_code&apos;s system prompt via the SDK&apos;s{' '}
-            <code>systemPrompt.append</code> option. Lets you keep custom memory conventions
-            (SOUL.md, IDENTITY.md, …) that claude-code&apos;s built-in CLAUDE.md auto-discovery
-            doesn&apos;t know about. Read locally for local workspaces, via <code>ssh + cat</code>{' '}
-            (over the existing ControlMaster connection) for remote ones. Lines starting with{' '}
-            <code>#</code> are ignored. Combined content is capped at 256KB to avoid blowing
-            out the system prompt.
-          </span>
-        </label>
-      </section>
 
       <section>
         <h2>MCP servers (JSON)</h2>
