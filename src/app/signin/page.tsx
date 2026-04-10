@@ -1,11 +1,13 @@
+import { AuthError } from 'next-auth';
+import { redirect } from 'next/navigation';
 import { enabledProviders, signIn } from '@/lib/auth';
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, callbackUrl } = await searchParams;
 
   return (
     <div className="signin-panel">
@@ -13,7 +15,15 @@ export default async function SignInPage({
       <h1>Boardroom</h1>
       <p>A DM with Claude Code.</p>
 
-      {error && <div className="signin-error">Sign-in failed. Check your credentials and try again.</div>}
+      {error && (
+        <div className="signin-error">
+          {error === 'credentials'
+            ? 'Wrong username or password.'
+            : error === 'oidc'
+            ? 'SSO sign-in failed. Check your provider configuration.'
+            : 'Sign-in failed. Please try again.'}
+        </div>
+      )}
 
       <div className="signin-forms">
         {enabledProviders.credentials && (
@@ -21,11 +31,22 @@ export default async function SignInPage({
             className="signin-form"
             action={async (formData) => {
               'use server';
-              await signIn('credentials', {
-                username: formData.get('username'),
-                password: formData.get('password'),
-                redirectTo: '/',
-              });
+              try {
+                await signIn('credentials', {
+                  username: formData.get('username'),
+                  password: formData.get('password'),
+                  redirectTo: callbackUrl || '/',
+                });
+              } catch (err) {
+                if (err instanceof AuthError) {
+                  // Redirect back to the sign-in page with a query param
+                  // so the error renders inline instead of a raw 500.
+                  redirect(`/signin?error=credentials${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`);
+                }
+                // Re-throw non-auth errors (e.g. Next.js redirect errors
+                // which are technically thrown as NEXT_REDIRECT).
+                throw err;
+              }
             }}
           >
             <label>
@@ -50,7 +71,14 @@ export default async function SignInPage({
           <form
             action={async () => {
               'use server';
-              await signIn('oidc', { redirectTo: '/' });
+              try {
+                await signIn('oidc', { redirectTo: callbackUrl || '/' });
+              } catch (err) {
+                if (err instanceof AuthError) {
+                  redirect(`/signin?error=oidc${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`);
+                }
+                throw err;
+              }
             }}
           >
             <button type="submit" className="btn">
