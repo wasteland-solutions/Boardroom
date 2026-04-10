@@ -79,26 +79,14 @@ export class ActiveQuery {
     const isRemote = parsed.kind === 'remote';
     const remote = isRemote ? (parsed as RemoteWorkspace) : null;
 
-    // Load any workspace-root memory files (CLAUDE.md, SOUL.md,
-    // IDENTITY.md, TOOLS.md, MEMORY.md, AGENTS.md, ... — configurable
-    // in Settings). claude-code's auto-discovery only knows about
-    // CLAUDE.md, so anything in the user's custom convention has to
-    // be loaded by us and forwarded via the systemPrompt.append SDK
-    // option. Per-conversation custom instructions stack on top of
-    // the loaded memory (memory first, then user override).
-    const workspaceMemory = loadWorkspaceMemory(parsed, opts.workspaceMemoryFiles);
-    const promptParts: string[] = [];
-    if (workspaceMemory) promptParts.push(workspaceMemory);
-    if (opts.systemPromptAppend && opts.systemPromptAppend.trim()) {
-      promptParts.push(opts.systemPromptAppend.trim());
-    }
-    const systemPromptOption: { type: 'preset'; preset: 'claude_code'; append?: string } = {
-      type: 'preset',
-      preset: 'claude_code',
+    // Use the standard claude_code preset with no modifications.
+    // The agent's identity comes from the workspace's own files
+    // (CLAUDE.md, .claude/, etc.) via settingSources: ['project'] —
+    // we don't inject anything extra into the system prompt.
+    const systemPromptOption = {
+      type: 'preset' as const,
+      preset: 'claude_code' as const,
     };
-    if (promptParts.length > 0) {
-      systemPromptOption.append = promptParts.join('\n\n');
-    }
 
     this.q = query({
       prompt: this.iterator(),
