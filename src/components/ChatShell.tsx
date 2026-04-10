@@ -70,11 +70,13 @@ export function ChatShell({
   cwds,
   current,
   initialMessages,
+  initialMode = 'chat',
 }: {
   conversations: Conversation[];
   cwds: Cwd[];
   current: Conversation | null;
   initialMessages: StoredMessage[];
+  initialMode?: 'chat' | 'terminal';
 }) {
   const router = useRouter();
   const [blocks, setBlocks] = useState<DisplayBlock[]>(() => hydrateBlocks(initialMessages));
@@ -82,8 +84,8 @@ export function ChatShell({
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
-  const [showChat, setShowChat] = useState(true);
-  const [showTerminal, setShowTerminal] = useState(false);
+  const [showChat, setShowChat] = useState(initialMode !== 'terminal');
+  const [showTerminal, setShowTerminal] = useState(initialMode === 'terminal');
   const [stopped, setStopped] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -864,7 +866,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
     );
   }
 
-  const submit = async () => {
+  const submit = async (mode: 'chat' | 'terminal' = 'chat') => {
     setBusy(true);
     try {
       const res = await fetch('/api/conversations', {
@@ -880,7 +882,8 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
       });
       if (!res.ok) throw new Error(await res.text());
       const { conversation } = (await res.json()) as { conversation: Conversation };
-      router.push(`/c/${conversation.id}`);
+      const query = mode === 'terminal' ? '?mode=terminal' : '';
+      router.push(`/c/${conversation.id}${query}`);
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -944,9 +947,14 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
             a CLAUDE.md on the host. Editable later from the chat header.
           </span>
         </label>
-        <button className="btn" onClick={submit} disabled={busy || !cwd} style={{ marginTop: 4 }}>
-          {busy ? 'Creating…' : 'Create conversation'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button className="btn" onClick={() => submit('chat')} disabled={busy || !cwd}>
+            {busy ? 'Creating…' : 'Start chat'}
+          </button>
+          <button className="btn ghost" onClick={() => submit('terminal')} disabled={busy || !cwd}>
+            {busy ? 'Creating…' : 'Start terminal'}
+          </button>
+        </div>
       </section>
     </div>
   );
