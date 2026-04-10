@@ -138,7 +138,10 @@ export function ChatShell({
 
   const onKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      // Enter alone sends, Shift+Enter inserts a newline. Skip while an
+      // IME composition is in progress so Asian input methods don't get
+      // their Enter-to-commit swallowed.
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         void send();
       }
@@ -276,7 +279,7 @@ export function ChatShell({
               <div className="empty-state">
                 <div className="wordmark">B</div>
                 <h2>Say hi to Claude Code</h2>
-                <p>Type a message below to get started. Cmd/Ctrl+Enter sends.</p>
+                <p>Type a message below to get started. Enter sends, Shift+Enter for a newline.</p>
               </div>
             )}
             {blocks.map((b) => (
@@ -286,7 +289,7 @@ export function ChatShell({
           <div className="composer">
             <textarea
               rows={2}
-              placeholder="Message Claude Code — Cmd/Ctrl+Enter to send"
+              placeholder="Message Claude Code — Enter to send, Shift+Enter for newline"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKey}
