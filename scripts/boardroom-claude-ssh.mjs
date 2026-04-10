@@ -13,14 +13,16 @@
 //   BOARDROOM_SSH_CWD    absolute remote directory to cd into
 // Optional:
 //   BOARDROOM_SSH_PORT   ssh port if non-default
-//   CLAUDE_CODE_OAUTH_TOKEN   forwarded to the remote claude via the
-//                             LC_BOARDROOM_TOKEN env smuggling trick
-//                             (most sshd configs `AcceptEnv LC_*`)
+//
+// Authentication: we deliberately do NOT forward any local credentials.
+// The remote `claude` uses whatever auth lives in its own ~/.claude (or
+// the remote's own ANTHROPIC_API_KEY env var, etc.) — exactly as if you'd
+// run `claude` over `ssh` by hand. Run `claude auth login` on the remote
+// once and you're set. This avoids account-mismatch / stale-token / API-
+// key-vs-subscription confusion when the remote is already configured
+// for a different account than the local Boardroom.
 //
 // Caveats — see README for the full list:
-//   - The remote sshd needs `AcceptEnv LC_*` for OAuth token forwarding.
-//     Without it, the remote claude will fall back to whatever auth lives
-//     in ~/.claude on the remote host.
 //   - claude must be on PATH for the remote login shell.
 //   - The SSH key auth must be non-interactive (BatchMode=yes is set).
 //   - The remote claude version should be compatible with the local SDK.
@@ -32,7 +34,6 @@ import { dirname } from 'node:path';
 const host = process.env.BOARDROOM_SSH_HOST;
 const remoteCwd = process.env.BOARDROOM_SSH_CWD;
 const port = process.env.BOARDROOM_SSH_PORT;
-const token = process.env.CLAUDE_CODE_OAUTH_TOKEN;
 
 if (!host || !remoteCwd) {
   process.stderr.write(
@@ -49,26 +50,11 @@ function shq(s) {
 const passthroughArgs = process.argv.slice(2);
 const remoteArgString = passthroughArgs.map(shq).join(' ');
 
-// Build the inner command we want a login shell on the remote to run.
-// `bash -lc` invokes a *login* shell which sources ~/.bash_profile,
-// ~/.profile, etc. — that's where `claude` typically lives via npm-global,
-// nvm, asdf, mise, or homebrew. Without -lc the remote PATH is just SSH's
-// default (~/usr/bin:/bin) and `claude` exits 127 immediately.
-//
-// We also unwrap the smuggled OAuth token / API key from the LC_* env
-// vars (which sshd typically forwards because of `AcceptEnv LC_*`) into
-// the real env var names that the claude CLI reads.
-const innerParts = [`cd ${shq(remoteCwd)}`];
-if (token) {
-  innerParts.push(
-    'if [ -n "${LC_BOARDROOM_TOKEN-}" ]; then export CLAUDE_CODE_OAUTH_TOKEN="$LC_BOARDROOM_TOKEN"; fi',
-  );
-}
-innerParts.push(
-  'if [ -n "${LC_BOARDROOM_API_KEY-}" ]; then export ANTHROPIC_API_KEY="$LC_BOARDROOM_API_KEY"; fi',
-);
-innerParts.push(`exec claude ${remoteArgString}`);
-const innerCmd = innerParts.join(' && ');
+// The inner command we want a login shell on the remote to run: cd into
+// the workspace and exec the remote claude with the SDK's argv. The
+// remote claude reads its own auth from ~/.claude (the result of having
+// run `claude auth login` on the host) — we don't touch it.
+const innerCmd = `cd ${shq(remoteCwd)} && exec claude ${remoteArgString}`;
 
 // Wrap the inner command in `bash -lic '...'` — login + interactive +
 // command. The `-i` (interactive) flag is critical: most ~/.bashrc files
@@ -95,15 +81,15 @@ const sshArgs = [
   '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
   '-o', 'ControlPersist=10m',
 ];
-if (token) sshArgs.push('-o', 'SendEnv=LC_BOARDROOM_TOKEN');
 if (port) sshArgs.push('-p', String(port));
 sshArgs.push(host, '--', remoteCmd);
 
+// Strip any local Anthropic credentials from the env we hand to ssh so we
+// can't accidentally smuggle them across the wire. The remote claude is
+// authoritative for its own auth.
 const childEnv = { ...process.env };
-if (token) childEnv.LC_BOARDROOM_TOKEN = token;
-// Don't leak the local-only OAuth token to ssh's child env beyond the
-// LC_ smuggling channel.
 delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
+delete childEnv.ANTHROPIC_API_KEY;
 
 // We capture ssh's stderr so that on a non-zero exit we have something to
 // show the user. Stdin and stdout are inherited 1:1 — that's the SDK
@@ -147,7 +133,7 @@ function writeDebugLog(code, signal) {
       `host: ${host}`,
       `cwd:  ${remoteCwd}`,
       `port: ${port ?? 'default'}`,
-      `auth: ${token ? 'oauth-token' : 'none-or-server-side'}`,
+      `auth: remote (we don't forward credentials)`,
       `args: ${JSON.stringify(passthroughArgs)}`,
       `cmd:  ssh ${sshArgs.join(' ')}`,
       stderrText ? `stderr:\n${stderrText}` : 'stderr: (empty)',

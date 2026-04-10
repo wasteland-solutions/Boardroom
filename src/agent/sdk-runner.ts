@@ -79,15 +79,16 @@ export class ActiveQuery {
       sshEnv.BOARDROOM_SSH_HOST = sshTarget(remote);
       sshEnv.BOARDROOM_SSH_CWD = remote.path;
       if (remote.port) sshEnv.BOARDROOM_SSH_PORT = String(remote.port);
-      // CLAUDE_CODE_OAUTH_TOKEN is already set on process.env by
-      // applyCredentials() in worker.ts when authMode === 'claude_code'.
-      // The wrapper picks it up there and smuggles it to the remote via
-      // LC_BOARDROOM_TOKEN. For api_key mode, ANTHROPIC_API_KEY needs to
-      // round-trip the same way — but most ssh hosts also accept LC_*
-      // for that, so we mirror it here too.
-      if (process.env.ANTHROPIC_API_KEY) {
-        sshEnv.LC_BOARDROOM_API_KEY = process.env.ANTHROPIC_API_KEY;
-      }
+      // We do NOT forward local Anthropic credentials to the remote.
+      // The remote `claude` uses whatever's in its own ~/.claude (run
+      // `claude auth login` on the host once and you're set). Forwarding
+      // would just clobber that with the local Boardroom user's auth and
+      // cause account-mismatch / stale-token bugs. The wrapper script
+      // also strips ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from
+      // ssh's child env defensively, but we don't even bother seeding
+      // them here.
+      sshEnv.ANTHROPIC_API_KEY = undefined;
+      sshEnv.CLAUDE_CODE_OAUTH_TOKEN = undefined;
     }
 
     this.q = query({
@@ -110,7 +111,7 @@ export class ActiveQuery {
           ? {
               pathToClaudeCodeExecutable: SSH_WRAPPER_PATH,
               executable: 'node' as const,
-              env: { ...process.env, ...sshEnv },
+              env: buildSshChildEnv(sshEnv),
             }
           : {}),
         ...(opts.sdkSessionId ? { resume: opts.sdkSessionId, forkSession: false } : {}),
@@ -442,6 +443,28 @@ export class ActiveQuery {
       }
     }
   }
+}
+
+// Build the env we hand to the SSH wrapper child. Starts from process.env
+// minus any local Anthropic credentials, then layers the BOARDROOM_SSH_*
+// fields on top. The wrapper script also strips these defensively, but
+// removing them here means they never even reach the wrapper.
+function buildSshChildEnv(
+  sshEnv: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k === 'ANTHROPIC_API_KEY' || k === 'CLAUDE_CODE_OAUTH_TOKEN') continue;
+    out[k] = v;
+  }
+  for (const [k, v] of Object.entries(sshEnv)) {
+    if (v === undefined) {
+      delete out[k];
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 // Convert raw SDK errors into user-facing message strings. Most SDK errors

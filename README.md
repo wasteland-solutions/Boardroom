@@ -171,19 +171,25 @@ Format is `ssh://[user@]host[:port]/absolute/remote/path`.
 ### Requirements on the remote host
 
 - **`ssh` and an OpenSSH server** that supports `ControlMaster=auto`. Any modern Linux/macOS install works.
-- **`claude` on the login `PATH`** of the user you SSH as. Install with `npm i -g @anthropic-ai/claude-code` (or via your package manager).
+- **`claude` authenticated on the remote** via `claude auth login` (or with an `ANTHROPIC_API_KEY` set in the user's shell rc files). Boardroom does *not* forward credentials — see [Auth on the remote host](#auth-on-the-remote-host) below.
+- **`claude` on the login `PATH`** of the user you SSH as. Install with `npm i -g @anthropic-ai/claude-code` (or via your package manager). The wrapper invokes `bash -lic` on the remote — login + interactive — so anything `.bashrc` puts on PATH (nvm, asdf, mise, `~/.local/bin`, etc.) will be visible. If your remote shell is exotic or your PATH lives somewhere weird, run `bash -lic "which claude"` on the remote to verify.
 - **Non-interactive key auth.** Boardroom passes `BatchMode=yes` so password prompts aren't possible. Use `ssh-agent`, `~/.ssh/config IdentityFile`, or hardware keys.
-- **`AcceptEnv LC_*`** in `/etc/ssh/sshd_config` *if* you want Boardroom to forward your Anthropic credentials to the remote claude. This is the default on most distros (it's how SSH propagates locale). If your remote uses a stripped-down config, the remote `claude` will fall back to whatever credentials live in `~/.claude` on the remote host.
 - **Claude version compatibility.** The remote claude should be reasonably recent — old versions may not understand the SDK's stream-json protocol.
 
 ### Auth on the remote host
 
-Your local Boardroom credentials are forwarded to the remote claude via SSH env-var smuggling:
+**Boardroom does not forward your local Anthropic credentials to the remote.** The remote `claude` uses whatever auth lives in its own `~/.claude/.credentials.json` (or in `ANTHROPIC_API_KEY` in the remote user's environment), exactly as if you'd run `claude` over `ssh` by hand.
 
-- **Anthropic API key mode** → forwarded as `LC_BOARDROOM_API_KEY`, unwrapped to `ANTHROPIC_API_KEY` in the wrapper script.
-- **Claude Code subscription mode** → forwarded as `LC_BOARDROOM_TOKEN`, unwrapped to `CLAUDE_CODE_OAUTH_TOKEN`.
+To set this up: `ssh` to the remote once and run `claude auth login` (or set the API key in your remote shell rc). After that, Boardroom's SSH workspaces just work.
 
-If your remote sshd doesn't accept `LC_*`, just configure the remote host's `~/.claude` directly with `claude auth login` once and Boardroom will use whatever's there.
+Why this design:
+- The remote dev box is almost always where you've already configured `claude` for the right account. Forwarding our local creds would override that with whoever the local Boardroom user happens to be — usually the wrong choice.
+- It avoids account-mismatch / stale-token / API-key-vs-subscription confusion when the local and remote are configured for different accounts.
+- It removes a class of failures involving SSH env-var forwarding, sshd `AcceptEnv` rules, etc.
+
+The wrapper script explicitly strips `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` from the env it hands to `ssh`, so the local Boardroom worker's credentials can never accidentally leak across the wire even if you set them.
+
+If you have a need to use the local account on the remote (e.g. you want billing to go to your local Max sub instead of the remote's account), set `CLAUDE_CODE_OAUTH_TOKEN` directly in the remote user's `~/.bashrc` and we'll pick it up via the same `bash -lic` that handles PATH.
 
 ### Limitations
 
