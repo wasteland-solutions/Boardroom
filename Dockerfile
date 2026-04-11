@@ -16,24 +16,24 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-# ---------- install all deps ----------
+# ---------- install all deps + build native modules ----------
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
-# pnpm in CI blocks postinstall scripts by default. We need
-# better-sqlite3 and node-pty to compile their native bindings.
-RUN pnpm install --frozen-lockfile && \
-    node scripts/fix-node-pty.mjs 2>/dev/null || true
 COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
+# --frozen-lockfile for reproducibility. The postinstall script
+# runs fix-node-pty.mjs to chmod the spawn-helper binary.
+RUN pnpm install --frozen-lockfile
 
 # ---------- build stage ----------
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Build Next.js + compile the agent worker to dist/agent/
 RUN pnpm build
 
-# ---------- runtime stage ----------
+# ---------- runtime stage (no build tools needed) ----------
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -51,11 +51,9 @@ RUN apt-get update \
         openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root runtime user.
 RUN groupadd --system --gid 1001 boardroom \
     && useradd --system --uid 1001 --gid boardroom --create-home boardroom
 
-# Copy everything needed at runtime from the build stages.
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
 COPY --from=builder /app/.next ./.next
@@ -64,7 +62,6 @@ COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/scripts ./scripts
 
-# Data dir + workspaces mount point.
 RUN mkdir -p /app/data /workspaces \
     && chown -R boardroom:boardroom /app /workspaces
 

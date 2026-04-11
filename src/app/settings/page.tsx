@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { desc } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
 import { getDb } from '@/lib/db';
@@ -29,9 +30,9 @@ export default async function SettingsPage() {
             <div className="sidebar-title">Boardroom</div>
           </div>
           <div className="sidebar-actions">
-            <a className="icon-btn" href="/" title="Back to chat">
+            <Link className="icon-btn" href="/" title="Back to chat">
               ←
-            </a>
+            </Link>
           </div>
         </div>
         <div>
