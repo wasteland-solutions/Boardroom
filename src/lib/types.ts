@@ -2,14 +2,10 @@
 
 export type PermissionMode = 'ask' | 'acceptEdits' | 'bypassPermissions';
 
-export type Provider = 'claude' | 'codex';
-
 export type ModelId =
   | 'claude-opus-4-6'
   | 'claude-sonnet-4-6'
-  | 'claude-haiku-4-5'
-  | 'gpt-5.3-codex'
-  | 'gpt-5.4';
+  | 'claude-haiku-4-5';
 
 // `api_key`     — use the ANTHROPIC_API_KEY env var. Billed to your Anthropic
 //                 Console account.
@@ -26,15 +22,7 @@ export const CLAUDE_MODELS: ModelId[] = [
   'claude-haiku-4-5',
 ];
 
-export const CODEX_MODELS: ModelId[] = [
-  'gpt-5.3-codex',
-  'gpt-5.4',
-];
-
-export const ALL_MODELS: ModelId[] = [...CLAUDE_MODELS, ...CODEX_MODELS];
-
-// Keep DEFAULT_MODELS for backwards compat (used in zod schemas).
-export const DEFAULT_MODELS = ALL_MODELS;
+export const DEFAULT_MODELS = CLAUDE_MODELS;
 
 // --- Settings (persisted as JSON in the `settings` table) ---
 
@@ -52,9 +40,6 @@ export interface AppSettings {
   defaultPermissionMode: PermissionMode;
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number; // 0 = hold forever
-  // OpenAI API key for Codex conversations (pasted in Settings, stored
-  // encrypted in SQLite like the Anthropic key).
-  openaiApiKey: string;
 }
 
 // Mirrors the shape expected by Claude Agent SDK's `mcpServers` option.
@@ -84,7 +69,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPermissionMode: 'ask',
   mcpServers: {},
   permissionTimeoutMs: 5 * 60 * 1000,
-  openaiApiKey: '',
 };
 
 // --- Server → Client SSE frames ---
@@ -173,7 +157,6 @@ export type WorkerRpcRequest =
       op: 'start_or_resume';
       conversationId: string;
       cwd: string;
-      provider: Provider;
       model: ModelId;
       permissionMode: PermissionMode;
       sdkSessionId: string | null;
@@ -182,7 +165,6 @@ export type WorkerRpcRequest =
       authMode: AuthMode;
       anthropicApiKey: string;
       claudeCodeOauthToken: string;
-      openaiApiKey: string;
     }
   | { id: string; op: 'send_user_message'; conversationId: string; text: string }
   | { id: string; op: 'set_permission_mode'; conversationId: string; mode: PermissionMode }

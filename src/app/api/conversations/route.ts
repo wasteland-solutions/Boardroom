@@ -13,7 +13,6 @@ type Scope = 'active' | 'archived' | 'all';
 const CreateSchema = z.object({
   title: z.string().max(200).optional(),
   cwd: z.string().min(1),
-  provider: z.enum(['claude', 'codex']).optional(),
   model: z.enum(DEFAULT_MODELS as [ModelId, ...ModelId[]]).optional(),
   permissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
 });
@@ -59,15 +58,14 @@ export async function POST(req: Request) {
   const settings = getSettings();
   const id = randomUUID();
   const now = Date.now();
-  const provider = parsed.data.provider ?? 'claude';
 
   db.insert(conversations)
     .values({
       id,
       title: parsed.data.title ?? null,
       cwd: parsed.data.cwd,
-      provider,
-      model: parsed.data.model ?? (provider === 'codex' ? 'gpt-5.3-codex' : settings.defaultModel),
+      provider: 'claude',
+      model: parsed.data.model ?? settings.defaultModel,
       permissionMode: (parsed.data.permissionMode ?? settings.defaultPermissionMode) as PermissionMode,
       sdkSessionId: null,
       createdAt: now,

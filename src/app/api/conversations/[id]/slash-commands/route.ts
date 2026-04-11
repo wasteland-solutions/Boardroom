@@ -31,7 +31,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       op: 'start_or_resume',
       conversationId,
       cwd: conv.cwd,
-      provider: (conv.provider ?? 'claude') as 'claude' | 'codex',
       model: conv.model as ModelId,
       permissionMode: conv.permissionMode as PermissionMode,
       sdkSessionId: conv.sdkSessionId,
@@ -40,7 +39,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       authMode: appSettings.authMode,
       anthropicApiKey: appSettings.anthropicApiKey,
       claudeCodeOauthToken: appSettings.claudeCodeOauthToken,
-      openaiApiKey: appSettings.openaiApiKey,
     })
     .catch(() => {
       // best-effort — fall through and return an empty list

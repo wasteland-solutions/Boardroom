@@ -53,7 +53,6 @@ export function SettingsForm({
           defaultPermissionMode: settings.defaultPermissionMode,
           mcpServers: parsedMcp,
           permissionTimeoutMs: settings.permissionTimeoutMs,
-          openaiApiKey: settings.openaiApiKey,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -162,24 +161,6 @@ export function SettingsForm({
           </label>
         )}
 
-        <label style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-          <span>OpenAI API key (for Codex conversations)</span>
-          <input
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="sk-..."
-            value={settings.openaiApiKey}
-            onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
-          />
-          <span className="hint">
-            Required for Codex conversations. Get one from{' '}
-            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
-              platform.openai.com
-            </a>. Stored encrypted in SQLite. Alternatively, Codex can use its own OAuth
-            login (<code>codex login</code> on the host) and this field can be left blank.
-          </span>
-        </label>
       </section>
 
       <section>

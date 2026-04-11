@@ -1,6 +1,6 @@
 import { ActiveQuery, type StartOptions } from './sdk-runner';
 import type { PermissionBroker } from './permission-broker';
-import type { StreamFrame, Provider } from '../lib/types';
+import type { StreamFrame } from '../lib/types';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 
@@ -34,7 +34,7 @@ export class SessionManager {
     return this.sessions.get(conversationId);
   }
 
-  startOrResume(opts: StartOptions & { provider?: Provider }): AnySession {
+  startOrResume(opts: StartOptions): AnySession {
     const existing = this.sessions.get(opts.conversationId);
     if (existing && !existing.isDead) return existing;
     if (existing && existing.isDead) {

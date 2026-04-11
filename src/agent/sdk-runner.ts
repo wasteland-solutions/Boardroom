@@ -291,11 +291,11 @@ export class ActiveQuery {
 
 // Mutable streaming state shared between the caller's reader loop and this
 // function.
-export type StreamingState = { currentStreamingMessageId: string | null };
+type StreamingState = { currentStreamingMessageId: string | null };
 
 // Standalone message handler. Consumes one parsed message from the claude
 // stream-json protocol, persists it, and emits the corresponding StreamFrame(s).
-export function handleSdkMessage(
+function handleSdkMessage(
   convId: string,
   msg: Record<string, unknown>,
   emit: (conversationId: string, frame: StreamFrame) => void,
