@@ -67,12 +67,6 @@ if (existsSync(envPath)) {
     warn('AUTH_SECRET is empty in .env. Generate one: openssl rand -base64 32');
     hasErrors = true;
   }
-  const hasUsername = env.match(/^BOARDROOM_USERNAME=.+$/m);
-  const hasOidc = env.match(/^OIDC_ISSUER_URL=.+$/m);
-  if (!hasUsername && !hasOidc) {
-    warn('No sign-in method configured. Set BOARDROOM_USERNAME + BOARDROOM_PASSWORD in .env.');
-    hasErrors = true;
-  }
 }
 
 // 6. Run migrations

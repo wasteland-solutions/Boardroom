@@ -53,6 +53,10 @@ export function SettingsForm({
           defaultPermissionMode: settings.defaultPermissionMode,
           mcpServers: parsedMcp,
           permissionTimeoutMs: settings.permissionTimeoutMs,
+          oidcIssuerUrl: settings.oidcIssuerUrl,
+          oidcClientId: settings.oidcClientId,
+          oidcClientSecret: settings.oidcClientSecret,
+          oidcAllowedEmail: settings.oidcAllowedEmail,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -102,19 +106,17 @@ export function SettingsForm({
   return (
     <div className="panel">
       <h1>Settings</h1>
-      <p className="lead">Credentials and preferences. Everything lives on the SQLite data volume.</p>
 
       <section>
-        <h2>Credentials</h2>
-
+        <h2>Claude credentials</h2>
         <label>
-          <span>How should Claude Code authenticate?</span>
+          <span>Auth mode</span>
           <select
             value={settings.authMode}
             onChange={(e) => setSettings({ ...settings, authMode: e.target.value as AuthMode })}
           >
-            <option value="api_key">Anthropic API key — billed to your Anthropic Console account</option>
-            <option value="claude_code">Claude Code subscription — billed to your Max / Pro plan</option>
+            <option value="api_key">API key (Anthropic Console)</option>
+            <option value="claude_code">OAuth token (Claude Pro/Max subscription)</option>
           </select>
         </label>
 
@@ -125,14 +127,15 @@ export function SettingsForm({
               type="password"
               autoComplete="off"
               spellCheck={false}
-              placeholder="sk-ant-api03-..."
+              placeholder="sk-ant-..."
               value={settings.anthropicApiKey}
               onChange={(e) => setSettings({ ...settings, anthropicApiKey: e.target.value })}
             />
             <span className="hint">
-              Get one from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
-              Stored in SQLite on the Boardroom data volume. Overrides the <code>ANTHROPIC_API_KEY</code>
-              environment variable if both are set. Leave blank to fall back to the env var.
+              From{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
+                console.anthropic.com
+              </a>. Stored encrypted.
             </span>
           </label>
         ) : (
@@ -147,39 +150,27 @@ export function SettingsForm({
               onChange={(e) => setSettings({ ...settings, claudeCodeOauthToken: e.target.value })}
             />
             <span className="hint">
-              A long-lived token produced by running <code>claude setup-token</code> on any machine
-              where you&apos;ve already logged in with your Claude subscription. Open a terminal,
-              run the command, complete the browser flow, copy the resulting token, and paste it
-              here. The worker injects it as <code>CLAUDE_CODE_OAUTH_TOKEN</code> when spawning
-              the Claude Code CLI child process.
-              <br />
-              <br />
-              Running Boardroom in Docker? Run{' '}
-              <code>docker compose exec boardroom claude setup-token</code> inside the container —
-              the token it prints can be pasted here.
+              From <code>claude setup-token</code>. Stored encrypted.
             </span>
           </label>
         )}
-
       </section>
 
       <section>
         <h2>Defaults</h2>
         <label>
-          <span>Default model</span>
+          <span>Model</span>
           <select
             value={settings.defaultModel}
             onChange={(e) => setSettings({ ...settings, defaultModel: e.target.value as ModelId })}
           >
             {DEFAULT_MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
+              <option key={m} value={m}>{m}</option>
             ))}
           </select>
         </label>
         <label>
-          <span>Default permission mode</span>
+          <span>Permission mode</span>
           <select
             value={settings.defaultPermissionMode}
             onChange={(e) =>
@@ -192,7 +183,7 @@ export function SettingsForm({
           </select>
         </label>
         <label>
-          <span>Permission prompt timeout (ms, 0 = hold forever)</span>
+          <span>Permission timeout (ms, 0 = hold forever)</span>
           <input
             type="number"
             min={0}
@@ -206,20 +197,9 @@ export function SettingsForm({
 
       <section>
         <h2>Working directories</h2>
-        <div className="banner" style={{ marginBottom: 14 }}>
-          <strong>Local:</strong> leave Host blank, Path is an absolute local path
-          (e.g. <code>/path/to/your/project</code>).<br />
-          <strong>Remote (SSH):</strong> Host is <code>user@host[:port]</code>
-          (e.g. <code>user@host.example.com</code> or an alias from your{' '}
-          <code>~/.ssh/config</code>), Path is the absolute remote path.
-          Click <strong>Browse</strong> to navigate via SSH instead of typing.<br />
-          <strong>Docker:</strong> for local paths, mount your host project into the container
-          first via <code>docker-compose.yml</code>, then add the container-side path
-          (e.g. <code>/workspaces/my-app</code>) here.
-        </div>
         {cwdList.length === 0 && (
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 10 }}>
-            Add at least one directory so you can start a conversation.
+            Add at least one directory to start a conversation.
           </div>
         )}
         {cwdList.map((c) => (
@@ -256,7 +236,6 @@ export function SettingsForm({
                 type="button"
                 className="btn ghost"
                 onClick={() => setBrowserOpen(true)}
-                title="Browse for a directory"
               >
                 Browse
               </button>
@@ -270,11 +249,7 @@ export function SettingsForm({
               onChange={(e) => setNewLabel(e.target.value)}
             />
           </label>
-          <button
-            className="btn"
-            onClick={addCwd}
-            disabled={!newPath.trim() || !newLabel.trim()}
-          >
+          <button className="btn" onClick={addCwd} disabled={!newPath.trim() || !newLabel.trim()}>
             Add workspace
           </button>
         </div>
@@ -284,18 +259,62 @@ export function SettingsForm({
         <DirectoryBrowser
           host={newHost}
           initialPath={newPath || (newHost ? '/home' : '/')}
-          onPick={(picked) => {
-            setNewPath(picked);
-            setBrowserOpen(false);
-          }}
+          onPick={(picked) => { setNewPath(picked); setBrowserOpen(false); }}
           onClose={() => setBrowserOpen(false)}
         />
       )}
 
       <section>
-        <h2>MCP servers (JSON)</h2>
+        <h2>SSO (OIDC)</h2>
+        <span className="hint" style={{ display: 'block', marginBottom: 12 }}>
+          Optional. Connect Google, Authentik, Keycloak, or any OIDC provider. Restart required after changing.
+        </span>
         <label>
-          <span>Passed to Claude Agent SDK as mcpServers</span>
+          <span>Issuer URL</span>
+          <input
+            type="url"
+            placeholder="https://accounts.google.com"
+            value={settings.oidcIssuerUrl}
+            onChange={(e) => setSettings({ ...settings, oidcIssuerUrl: e.target.value })}
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          <span>Client ID</span>
+          <input
+            placeholder="xxxx.apps.googleusercontent.com"
+            value={settings.oidcClientId}
+            onChange={(e) => setSettings({ ...settings, oidcClientId: e.target.value })}
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          <span>Client secret</span>
+          <input
+            type="password"
+            autoComplete="off"
+            value={settings.oidcClientSecret}
+            onChange={(e) => setSettings({ ...settings, oidcClientSecret: e.target.value })}
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          <span>Allowed email</span>
+          <input
+            type="email"
+            placeholder="you@example.com"
+            value={settings.oidcAllowedEmail}
+            onChange={(e) => setSettings({ ...settings, oidcAllowedEmail: e.target.value })}
+            spellCheck={false}
+          />
+          <span className="hint">Only this email can sign in via SSO.</span>
+        </label>
+      </section>
+
+      <section>
+        <h2>MCP servers</h2>
+        <label>
+          <span>JSON config passed to the Claude Agent SDK</span>
           <textarea value={mcpText} onChange={(e) => setMcpText(e.target.value)} spellCheck={false} />
         </label>
         {mcpError && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{mcpError}</div>}

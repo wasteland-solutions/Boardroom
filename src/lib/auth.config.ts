@@ -10,27 +10,21 @@ import type { NextAuthConfig } from 'next-auth';
 export const authConfig = {
   pages: {
     signIn: '/signin',
-    // Override the default Auth.js error page (which leaks library
-    // identity and version info) with a redirect to signin + error
-    // query param.
     error: '/signin',
   },
   session: { strategy: 'jwt' },
   secret: process.env.AUTH_SECRET,
   providers: [],
   callbacks: {
-    // Middleware authorization check. Runs on every protected request.
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
+      // Allow auth endpoints, sign-in, and setup without a session.
       if (pathname.startsWith('/api/auth') || pathname === '/signin') return true;
+      if (pathname.startsWith('/setup') || pathname.startsWith('/api/setup')) return true;
       return !!auth;
     },
-    // Restrict post-auth redirects to same-origin paths. Prevents
-    // open-redirect via callbackUrl=http://evil.com.
     redirect({ url, baseUrl }) {
-      // Allow relative paths.
       if (url.startsWith('/')) return url;
-      // Allow same-origin absolute URLs.
       try {
         const target = new URL(url);
         const base = new URL(baseUrl);

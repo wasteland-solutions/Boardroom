@@ -40,6 +40,11 @@ export interface AppSettings {
   defaultPermissionMode: PermissionMode;
   mcpServers: Record<string, McpServerConfig>;
   permissionTimeoutMs: number; // 0 = hold forever
+  // OIDC SSO (optional). Configured in Settings; requires server restart to take effect.
+  oidcIssuerUrl: string;
+  oidcClientId: string;
+  oidcClientSecret: string;
+  oidcAllowedEmail: string;
 }
 
 // Mirrors the shape expected by Claude Agent SDK's `mcpServers` option.
@@ -69,6 +74,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultPermissionMode: 'ask',
   mcpServers: {},
   permissionTimeoutMs: 5 * 60 * 1000,
+  oidcIssuerUrl: '',
+  oidcClientId: '',
+  oidcClientSecret: '',
+  oidcAllowedEmail: '',
 };
 
 // --- Server → Client SSE frames ---

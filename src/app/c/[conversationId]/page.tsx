@@ -3,6 +3,7 @@ import { eq, desc, asc } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { conversations, cwds, messages } from '@/lib/schema';
+import { getSettings } from '@/lib/settings-store';
 import { ChatShell } from '@/components/ChatShell';
 
 export default async function ConversationPage({
@@ -21,9 +22,10 @@ export default async function ConversationPage({
   const db = getDb();
   const allConvs = db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
   const allCwds = db.select().from(cwds).all();
+  const settings = getSettings();
 
   if (conversationId === 'new') {
-    return <ChatShell conversations={allConvs} cwds={allCwds} current={null} initialMessages={[]} initialMode="chat" />;
+    return <ChatShell conversations={allConvs} cwds={allCwds} current={null} initialMessages={[]} initialMode="chat" initialSettings={settings} />;
   }
 
   const current = allConvs.find((c) => c.id === conversationId);
@@ -42,6 +44,6 @@ export default async function ConversationPage({
   }));
 
   return (
-    <ChatShell conversations={allConvs} cwds={allCwds} current={current} initialMessages={initialMessages} initialMode={initialMode as 'chat' | 'terminal'} />
+    <ChatShell conversations={allConvs} cwds={allCwds} current={current} initialMessages={initialMessages} initialMode={initialMode as 'chat' | 'terminal'} initialSettings={settings} />
   );
 }

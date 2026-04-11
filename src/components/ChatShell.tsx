@@ -11,6 +11,8 @@ import {
   type StreamFrame,
 } from '@/lib/types';
 import { TerminalPanel } from './TerminalPanel';
+import { SettingsForm } from './SettingsForm';
+import type { AppSettings } from '@/lib/types';
 
 type SlashCommand = {
   name: string;
@@ -77,11 +79,13 @@ export function ChatShell({
   current,
   initialMessages,
   initialMode = 'chat',
+  initialSettings,
 }: {
   conversations: Conversation[];
   cwds: Cwd[];
   current: Conversation | null;
   initialMessages: StoredMessage[];
+  initialSettings: AppSettings;
   initialMode?: 'chat' | 'terminal';
 }) {
   const router = useRouter();
@@ -90,6 +94,7 @@ export function ChatShell({
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
+  const [showSettings, setShowSettings] = useState(false);
   const [showChat, setShowChat] = useState(initialMode !== 'terminal');
   const [showTerminal, setShowTerminal] = useState(initialMode === 'terminal');
   const [stopped, setStopped] = useState(false);
@@ -519,9 +524,9 @@ export function ChatShell({
             >
               +
             </button>
-            <a className="icon-btn" href="/settings" title="Settings">
+            <button className="icon-btn" title="Settings" onClick={() => setShowSettings(!showSettings)}>
               ⚙
-            </a>
+            </button>
           </div>
         </div>
 
@@ -587,13 +592,29 @@ export function ChatShell({
     [activeConvs, archivedConvs, current?.id, router, showArchived],
   );
 
+  const settingsDrawer = showSettings && (
+    <>
+      <div className="drawer-backdrop" onClick={() => setShowSettings(false)} />
+      <aside className="drawer">
+        <div className="drawer-header">
+          <h2>Settings</h2>
+          <button className="icon-btn" onClick={() => setShowSettings(false)} title="Close">✕</button>
+        </div>
+        <div className="drawer-body">
+          <SettingsForm initialSettings={initialSettings} initialCwds={cwds} />
+        </div>
+      </aside>
+    </>
+  );
+
   if (showNew) {
     return (
       <div className="app">
         {sidebar}
         <main className="main-panel">
-          <NewConversationForm cwds={cwds} />
+          <NewConversationForm cwds={cwds} onOpenSettings={() => setShowSettings(true)} />
         </main>
+        {settingsDrawer}
       </div>
     );
   }
@@ -611,6 +632,7 @@ export function ChatShell({
             </div>
           </div>
         </main>
+        {settingsDrawer}
       </div>
     );
   }
@@ -766,6 +788,7 @@ export function ChatShell({
           last seq: {lastSeq}
         </div>
       </main>
+      {settingsDrawer}
     </div>
   );
 }
@@ -879,7 +902,7 @@ function MessageBlock({
   );
 }
 
-function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
+function NewConversationForm({ cwds, onOpenSettings }: { cwds: Cwd[]; onOpenSettings: () => void }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [cwd, setCwd] = useState(cwds[0]?.path ?? '');
@@ -894,7 +917,7 @@ function NewConversationForm({ cwds }: { cwds: Cwd[] }) {
           <div className="wordmark">B</div>
           <h2>No working directories configured</h2>
           <p>
-            Add one in <a href="/settings">Settings</a> before starting a conversation.
+            Add one in <button className="link-btn" onClick={onOpenSettings}>Settings</button> before starting a conversation.
           </p>
         </div>
       </div>

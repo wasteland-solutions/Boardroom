@@ -23,6 +23,10 @@ const PatchSchema = z.object({
   defaultPermissionMode: z.enum(['ask', 'acceptEdits', 'bypassPermissions']).optional(),
   mcpServers: z.record(McpServerSchema).optional(),
   permissionTimeoutMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional(),
+  oidcIssuerUrl: z.string().max(512).optional(),
+  oidcClientId: z.string().max(512).optional(),
+  oidcClientSecret: z.string().max(512).optional(),
+  oidcAllowedEmail: z.string().max(256).optional(),
 });
 
 export async function GET() {
