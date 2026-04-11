@@ -15,9 +15,10 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml .npmrc ./
 COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
 RUN pnpm install --frozen-lockfile
-# Verify native bindings compiled
+# Verify native bindings compiled. better-sqlite3 is required for
+# boot; node-pty is optional (terminal panel only).
 RUN node -e "require('better-sqlite3')" && echo "better-sqlite3 OK"
-RUN node -e "require('node-pty')" && echo "node-pty OK"
+RUN node -e "try{require('node-pty');console.log('node-pty OK')}catch(e){console.warn('node-pty skipped:',e.message)}"
 
 # ---------- build ----------
 FROM base AS builder
