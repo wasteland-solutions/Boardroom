@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <rect width="120" height="120" rx="26" fill="#1C1C1E"/>
+  <g transform="translate(25, 28)">
+    <!-- Chair back (speech bubble shape) -->
+    <rect x="5" y="0" width="60" height="42" rx="12" fill="url(#chairGrad)"/>
+    <!-- Seat cushion -->
+    <rect x="10" y="34" width="50" height="10" rx="5" fill="url(#seatGrad)" opacity="0.7"/>
+    <!-- Legs -->
+    <line x1="20" y1="44" x2="16" y2="60" stroke="url(#legGrad)" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="50" y1="44" x2="54" y2="60" stroke="url(#legGrad)" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+  <defs>
+    <linearGradient id="chairGrad" x1="35" y1="0" x2="35" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#40A9FF"/>
+      <stop offset="1" stop-color="#0A84FF"/>
+    </linearGradient>
+    <linearGradient id="seatGrad" x1="35" y1="34" x2="35" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5BB8FF"/>
+      <stop offset="1" stop-color="#0A84FF"/>
+    </linearGradient>
+    <linearGradient id="legGrad" x1="35" y1="44" x2="35" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="0.8" stop-color="#0071E3"/>
+    </linearGradient>
+  </defs>
+</svg>

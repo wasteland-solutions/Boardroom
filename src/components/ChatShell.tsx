@@ -513,18 +513,19 @@ export function ChatShell({
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="wordmark">B</div>
+            <div className="wordmark" aria-hidden="true" />
             <div className="sidebar-title">Boardroom</div>
           </div>
           <div className="sidebar-actions">
             <button
               className="icon-btn"
               title="New conversation"
-              onClick={() => router.push('/c/new')}
+              aria-label="New conversation"
+              onClick={() => setShowNew(true)}
             >
               +
             </button>
-            <button className="icon-btn" title="Settings" onClick={() => setShowSettings(!showSettings)}>
+            <button className="icon-btn" title="Settings" aria-label="Settings" onClick={() => setShowSettings(!showSettings)}>
               ⚙
             </button>
           </div>
@@ -581,10 +582,23 @@ export function ChatShell({
           Agent worker online
           <button
             className="sidebar-logout"
+            title="Toggle theme"
+            aria-label="Toggle theme"
+            onClick={() => {
+              const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+              document.documentElement.setAttribute('data-theme', next);
+              localStorage.setItem('theme', next);
+            }}
+          >
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+          <button
+            className="sidebar-logout"
             title="Sign out"
+            aria-label="Sign out"
             onClick={() => { window.location.href = '/api/auth/signout'; }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
           </button>
         </div>
       </aside>
@@ -598,7 +612,7 @@ export function ChatShell({
       <aside className="drawer">
         <div className="drawer-header">
           <h2>Settings</h2>
-          <button className="icon-btn" onClick={() => setShowSettings(false)} title="Close">✕</button>
+          <button className="icon-btn" onClick={() => setShowSettings(false)} title="Close" aria-label="Close">✕</button>
         </div>
         <div className="drawer-body">
           <SettingsForm initialSettings={initialSettings} initialCwds={cwds} />
@@ -607,17 +621,22 @@ export function ChatShell({
     </>
   );
 
-  if (showNew) {
-    return (
-      <div className="app">
-        {sidebar}
-        <main className="main-panel">
-          <NewConversationForm cwds={cwds} onOpenSettings={() => setShowSettings(true)} />
-        </main>
-        {settingsDrawer}
+  const newChatModal = showNew && (
+    <>
+      <div className="modal-backdrop" onClick={() => setShowNew(false)} />
+      <div className="modal-backdrop" style={{ background: 'transparent', pointerEvents: 'none' }}>
+        <div className="modal" style={{ pointerEvents: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <div className="modal-title">New conversation</div>
+            <button className="icon-btn" onClick={() => setShowNew(false)} title="Close" aria-label="Close">✕</button>
+          </div>
+          <div style={{ padding: 16, overflowY: 'auto' }}>
+            <NewConversationForm cwds={cwds} onOpenSettings={() => setShowSettings(true)} onClose={() => setShowNew(false)} />
+          </div>
+        </div>
       </div>
-    );
-  }
+    </>
+  );
 
   if (!current) {
     return (
@@ -626,12 +645,13 @@ export function ChatShell({
         <main className="main-panel">
           <div className="chat">
             <div className="empty-state">
-              <div className="wordmark">B</div>
+              <div className="wordmark" aria-hidden="true" />
               <h2>Nothing here yet</h2>
               <p>Create a new conversation from the sidebar to get started.</p>
             </div>
           </div>
         </main>
+        {newChatModal}
         {settingsDrawer}
       </div>
     );
@@ -724,7 +744,7 @@ export function ChatShell({
           <div className="messages" ref={messagesRef}>
             {blocks.length === 0 && (
               <div className="empty-state">
-                <div className="wordmark">B</div>
+                <div className="wordmark" aria-hidden="true" />
                 <h2>Say hi to Claude Code</h2>
                 <p>Type a message below to get started. Enter sends, Shift+Enter for a newline.</p>
               </div>
@@ -763,8 +783,10 @@ export function ChatShell({
             <div className="composer">
               <textarea
                 ref={composerRef}
+                name="message"
+                aria-label="Message"
                 rows={2}
-                placeholder={stopped ? 'Session stopped — click Resume to continue' : 'Message Claude Code — Enter to send, Shift+Enter for newline, / for commands'}
+                placeholder={stopped ? 'Session stopped — click Resume to continue…' : 'Message Claude Code — Enter to send, Shift+Enter for newline, / for commands…'}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKey}
@@ -788,6 +810,7 @@ export function ChatShell({
           last seq: {lastSeq}
         </div>
       </main>
+      {newChatModal}
       {settingsDrawer}
     </div>
   );
@@ -902,7 +925,7 @@ function MessageBlock({
   );
 }
 
-function NewConversationForm({ cwds, onOpenSettings }: { cwds: Cwd[]; onOpenSettings: () => void }) {
+function NewConversationForm({ cwds, onOpenSettings, onClose }: { cwds: Cwd[]; onOpenSettings: () => void; onClose?: () => void }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [cwd, setCwd] = useState(cwds[0]?.path ?? '');
@@ -914,7 +937,7 @@ function NewConversationForm({ cwds, onOpenSettings }: { cwds: Cwd[]; onOpenSett
     return (
       <div className="chat">
         <div className="empty-state">
-          <div className="wordmark">B</div>
+          <div className="wordmark" aria-hidden="true" />
           <h2>No working directories configured</h2>
           <p>
             Add one in <button className="link-btn" onClick={onOpenSettings}>Settings</button> before starting a conversation.
@@ -949,55 +972,48 @@ function NewConversationForm({ cwds, onOpenSettings }: { cwds: Cwd[]; onOpenSett
   };
 
   return (
-    <div className="panel">
-      <h1>New conversation</h1>
-      <p className="lead">Each conversation is one Claude Code session, bound to a working directory, model, and permission mode.</p>
-      <section>
-        <h2>Details</h2>
-        <label>
-          <span>Title (optional)</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
-        </label>
-        <label>
-          <span>Working directory</span>
-          <select value={cwd} onChange={(e) => setCwd(e.target.value)}>
-            {cwds.map((c) => (
-              <option key={c.path} value={c.path}>
-                {c.label} ({c.path})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Model</span>
-          <select value={model} onChange={(e) => setModel(e.target.value as ModelId)}>
-            {CLAUDE_MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Permission mode</span>
-          <select
-            value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
-          >
-            <option value="ask">ask — prompt for every risky tool</option>
-            <option value="acceptEdits">acceptEdits — auto-approve file edits</option>
-            <option value="bypassPermissions">bypassPermissions — full auto</option>
-          </select>
-        </label>
-        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          <button className="btn" onClick={() => submit('chat')} disabled={busy || !cwd}>
-            {busy ? 'Creating…' : 'Start chat'}
-          </button>
-          <button className="btn ghost" onClick={() => submit('terminal')} disabled={busy || !cwd}>
-            {busy ? 'Creating…' : 'Start terminal'}
-          </button>
-        </div>
-      </section>
+    <div className="new-conv-form">
+      <label>
+        <span>Title (optional)</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
+      </label>
+      <label>
+        <span>Working directory</span>
+        <select value={cwd} onChange={(e) => setCwd(e.target.value)}>
+          {cwds.map((c) => (
+            <option key={c.path} value={c.path}>
+              {c.label} ({c.path})
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Model</span>
+        <select value={model} onChange={(e) => setModel(e.target.value as ModelId)}>
+          {CLAUDE_MODELS.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Permission mode</span>
+        <select
+          value={permissionMode}
+          onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
+        >
+          <option value="ask">ask</option>
+          <option value="acceptEdits">acceptEdits</option>
+          <option value="bypassPermissions">bypassPermissions</option>
+        </select>
+      </label>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <button className="btn" style={{ flex: 1 }} onClick={() => submit('chat')} disabled={busy || !cwd}>
+          {busy ? 'Creating…' : 'Start chat'}
+        </button>
+        <button className="btn ghost" onClick={() => submit('terminal')} disabled={busy || !cwd}>
+          Terminal
+        </button>
+      </div>
     </div>
   );
 }

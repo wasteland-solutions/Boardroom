@@ -86,7 +86,7 @@ export function DirectoryBrowser({
           <div className="modal-title">
             Browse {host ? <span className="modal-host">{host}</span> : 'local filesystem'}
           </div>
-          <button className="icon-btn" onClick={onClose} title="Close">
+          <button className="icon-btn" onClick={onClose} title="Close" aria-label="Close">
             ✕
           </button>
         </div>
@@ -98,11 +98,13 @@ export function DirectoryBrowser({
             onClick={goParent}
             disabled={!listing?.parent}
             title="Up one level"
+            aria-label="Up one level"
           >
             ↑
           </button>
           <input
             type="text"
+            name="path"
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             placeholder="/absolute/path"
@@ -128,7 +130,7 @@ export function DirectoryBrowser({
               onClick={() => enter(entry)}
               disabled={!entry.isDir}
             >
-              <span className="browser-icon">{entry.isDir ? '📁' : '📄'}</span>
+              <span className="browser-icon" aria-hidden="true">{entry.isDir ? '📁' : '📄'}</span>
               <span className="browser-name">{entry.name}</span>
             </button>
           ))}

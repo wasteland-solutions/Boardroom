@@ -52,7 +52,7 @@ export default async function SetupPage({
 
   return (
     <div className="signin-panel">
-      <div className="wordmark">B</div>
+      <div className="wordmark" aria-hidden="true" />
       <h1>Boardroom</h1>
       <p>Create your account to get started.</p>
       {errorMessage && <div className="signin-error">{errorMessage}</div>}

@@ -15,7 +15,7 @@ export default async function SignInPage({
 
   return (
     <div className="signin-panel">
-      <div className="wordmark">B</div>
+      <div className="wordmark" aria-hidden="true" />
       <h1>Boardroom</h1>
       <p>A DM with Claude Code.</p>
 
