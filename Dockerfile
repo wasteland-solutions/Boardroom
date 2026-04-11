@@ -21,8 +21,11 @@ RUN pnpm install --frozen-lockfile
 FROM build-base AS prod-deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts \
-    && pnpm rebuild better-sqlite3 node-pty \
+# Install prod deps. We can't use --ignore-scripts globally because
+# better-sqlite3 needs its postinstall (prebuild-install) to download
+# the prebuilt native binding. So we install normally, which runs all
+# postinstall scripts including better-sqlite3's prebuild-install.
+RUN pnpm install --frozen-lockfile --prod \
     # Fix node-pty spawn-helper permissions
     && node -e "const fs=require('fs'),p=require('path'); \
        (function w(d){try{fs.readdirSync(d,{withFileTypes:true}).forEach(e=>{const f=p.join(d,e.name); \
