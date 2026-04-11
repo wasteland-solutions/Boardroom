@@ -1,13 +1,11 @@
 import { ActiveQuery, type StartOptions } from './sdk-runner';
-import { CodexSession, type CodexStartOptions } from './codex-runner';
 import type { PermissionBroker } from './permission-broker';
 import type { StreamFrame, Provider } from '../lib/types';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 
-// Unified session interface — both ActiveQuery (claude) and CodexSession
-// expose these properties so the session manager and the worker RPC can
-// treat them generically.
+// Unified session interface — ActiveQuery exposes these properties so the
+// session manager and the worker RPC can treat sessions generically.
 export type AnySession = {
   readonly conversationId: string;
   readonly isDead: boolean;
@@ -15,7 +13,6 @@ export type AnySession = {
   sendUserText(text: string): void;
   interrupt(): Promise<void> | void;
   close(): void;
-  // Optional — only ActiveQuery has these.
   setOnDead?(cb: () => void): void;
   setPermissionMode?(mode: string): Promise<void>;
   setModel?(model: string): Promise<void>;
@@ -44,21 +41,11 @@ export class SessionManager {
       this.sessions.delete(opts.conversationId);
     }
 
-    const provider = opts.provider ?? 'claude';
-
-    if (provider === 'codex') {
-      const codexOpts: CodexStartOptions = {
-        conversationId: opts.conversationId,
-        cwd: opts.cwd,
-        model: opts.model,
-        permissionMode: opts.permissionMode,
-      };
-      const session = new CodexSession(codexOpts, this.emit);
-      this.sessions.set(opts.conversationId, session);
-      return session;
-    }
-
-    // Default: Claude via the Agent SDK.
+    // ActiveQuery handles both local and remote workspaces. For remote,
+    // it opens an SSH tunnel to the remote control server and spawns the
+    // CLI via the server's RPC protocol. The SDK drives the stream-json
+    // protocol in both cases, so permissions, streaming, and tool use
+    // work identically.
     const session = new ActiveQuery(opts, this.broker, this.emit);
     session.setOnDead(() => {
       const current = this.sessions.get(opts.conversationId);

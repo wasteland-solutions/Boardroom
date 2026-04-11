@@ -155,14 +155,6 @@ export function buildSshUri(host: string, path: string): string | null {
   return `ssh://${userPart}${parsedHost.host}${portPart}${path}`;
 }
 
-// Human-readable label for sidebars / chat headers.
-export function describeWorkspace(input: string): string {
-  const parsed = parseWorkspacePath(input);
-  if (parsed.kind === 'remote') return `${sshTarget(parsed)}:${parsed.path}`;
-  if (parsed.kind === 'local') return parsed.path;
-  return input;
-}
-
 // Convert an absolute path into the slug claude-code uses to namespace
 // session files: every `/` is replaced with `-`. So `/Users/you/foo`
 // becomes `-Users-you-foo`. The session file lives at

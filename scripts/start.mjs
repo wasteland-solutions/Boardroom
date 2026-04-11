@@ -6,7 +6,7 @@
 // Both children are torn down cleanly on SIGINT / SIGTERM.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,6 +33,17 @@ async function runMigrations() {
 
   console.log(`[boardroom] migrations up-to-date (${dbPath})`);
   sqlite.close();
+
+  // Harden file permissions — secrets and database should not be world-readable.
+  for (const f of [dbPath, `${dbPath}-shm`, `${dbPath}-wal`]) {
+    if (existsSync(f)) {
+      try { chmodSync(f, 0o600); } catch { /* container fs may not support chmod */ }
+    }
+  }
+  const envFile = resolve(repoRoot, '.env');
+  if (existsSync(envFile)) {
+    try { chmodSync(envFile, 0o600); } catch { /* ignore */ }
+  }
 }
 
 try {
@@ -40,6 +51,14 @@ try {
 } catch (err) {
   console.error('[boardroom] migration failed:', err);
   process.exit(1);
+}
+
+// Warn if running production without HTTPS — cookies won't have the Secure flag.
+if (process.env.NODE_ENV === 'production' && !process.env.NEXTAUTH_URL?.startsWith('https://')) {
+  console.warn(
+    '[boardroom] ⚠ NODE_ENV=production but NEXTAUTH_URL does not start with https://. ' +
+    'Auth cookies will lack the Secure flag. Set NEXTAUTH_URL=https://your-domain to fix.',
+  );
 }
 
 // --- 2. Agent worker (background child) ---

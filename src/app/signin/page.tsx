@@ -1,7 +1,6 @@
 import { AuthError } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { enabledProviders, signIn } from '@/lib/auth';
-import { isRateLimited } from '@/lib/rate-limit';
 
 export default async function SignInPage({
   searchParams,
@@ -34,10 +33,6 @@ export default async function SignInPage({
             className="signin-form"
             action={async (formData) => {
               'use server';
-              // 5 attempts per 60 seconds.
-              if (isRateLimited('auth:credentials', 5, 60_000)) {
-                redirect(`/signin?error=ratelimit${callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ''}`);
-              }
               try {
                 await signIn('credentials', {
                   username: formData.get('username'),

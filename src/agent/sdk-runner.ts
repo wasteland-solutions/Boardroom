@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { spawn, type ChildProcess } from 'node:child_process';
-import { dirname } from 'node:path';
 import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { SpawnOptions as SdkSpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import { persistence } from './persistence';
 import type { PermissionBroker } from './permission-broker';
-import { parseWorkspacePath, sshTarget, type RemoteWorkspace } from '../lib/workspace';
+import { parseWorkspacePath, type RemoteWorkspace } from '../lib/workspace';
+import { SshTunnel } from './ssh-tunnel';
+import { spawnRemoteClaude } from './remote-spawn';
 import type {
   McpServerConfig,
   ModelId,
@@ -29,24 +28,14 @@ export type StartOptions = {
 // SDKUserMessage's into the SDK, the reader loop that drains SDKMessages out,
 // and the AbortController used for Stop.
 export class ActiveQuery {
-  private q: Query;
+  private q: Query | null = null;
   private queue: SDKUserMessage[] = [];
   private queueResolvers: Array<(v: IteratorResult<SDKUserMessage>) => void> = [];
   private done = false;
-  // True once the underlying claude process has crashed or been closed.
-  // sendUserText / setPermissionMode / setModel all bail when this is set
-  // so we don't try to write to a dead transport (which the SDK throws on
-  // synchronously, killing the worker).
   private dead = false;
-  // Callback the SessionManager subscribes to so it can evict this entry
-  // from its map when we self-terminate.
   private onDeadCallback: (() => void) | null = null;
-  // ID of the Anthropic assistant message currently being streamed. Set on
-  // message_start and reused for every content_block_delta in that turn so
-  // the UI can key every delta against one stable message ID and append to
-  // a single growing bubble. Cleared when the final SDKAssistantMessage for
-  // the same turn is persisted.
-  private currentStreamingMessageId: string | null = null;
+  private readonly streamState: StreamingState = { currentStreamingMessageId: null };
+  private tunnel: SshTunnel | null = null;
   public readonly abortController = new AbortController();
   public lastActivity = Date.now();
 
@@ -63,68 +52,9 @@ export class ActiveQuery {
     private readonly broker: PermissionBroker,
     private readonly emit: (conversationId: string, frame: StreamFrame) => void,
   ) {
-    const canUseTool = this.broker.createCallback(opts.conversationId, opts.permissionTimeoutMs);
-
-    const parsed = parseWorkspacePath(opts.cwd);
-    const isRemote = parsed.kind === 'remote';
-    const remote = isRemote ? (parsed as RemoteWorkspace) : null;
-
-    // Use the standard claude_code preset with no modifications.
-    // The agent's identity comes from the workspace's own files
-    // (CLAUDE.md, .claude/, etc.) via settingSources: ['project'] —
-    // we don't inject anything extra into the system prompt.
-    const systemPromptOption = {
-      type: 'preset' as const,
-      preset: 'claude_code' as const,
-    };
-
-    this.q = query({
-      prompt: this.iterator(),
-      options: {
-        // For remote workspaces, the wrapper does its own remote `cd`, so
-        // the local cwd just needs to be a real existing directory. Use
-        // process.cwd() as a stable fallback.
-        cwd: remote ? process.cwd() : opts.cwd,
-        model: opts.model,
-        permissionMode: opts.permissionMode === 'ask' ? 'default' : opts.permissionMode,
-        canUseTool,
-        mcpServers: opts.mcpServers,
-        // Project-scoped only — Boardroom deliberately does NOT load
-        // ~/.claude/ ('user' source) so the agent's behavior is
-        // determined entirely by what's in the workspace itself
-        // (CLAUDE.md, .claude/agents/, .claude/commands/, .claude/
-        // skills/, .claude/settings.json walked up from cwd). This
-        // makes each workspace self-contained and reproducible —
-        // the same workspace mounted on a different host gets the
-        // same agent personality, regardless of whose ~/.claude
-        // happens to live there.
-        settingSources: ['project'],
-        systemPrompt: systemPromptOption,
-        tools: { type: 'preset', preset: 'claude_code' },
-        includePartialMessages: true,
-        abortController: this.abortController,
-        // For SSH workspaces we use the SDK's spawnClaudeCodeProcess
-        // callback instead of pathToClaudeCodeExecutable. This is the
-        // SDK's *intended* extension point for VMs / containers / SSH —
-        // it keeps the client identity / headers identical to a standard
-        // SDK spawn, which avoids Anthropic's third-party-harness
-        // classification. pathToClaudeCodeExecutable swaps the binary
-        // and the SDK reports it as a non-standard executable.
-        ...(remote
-          ? {
-              spawnClaudeCodeProcess: (sdkOpts: SdkSpawnOptions) =>
-                spawnSshClaude(remote, sdkOpts),
-            }
-          : {}),
-        ...(opts.sdkSessionId && opts.sdkSessionId.length > 0
-          ? { resume: opts.sdkSessionId, forkSession: false }
-          : {}),
-      },
-    });
-
-    // Kick off the reader loop (fire and forget).
-    this.runReaderLoop().catch((err) => {
-      console.error(`[sdk-runner] reader loop crashed for ${opts.conversationId}:`, err);
+    // Kick off async init (tunnel open for remote, then query + reader loop).
+    this.init().catch((err) => {
+      console.error(`[sdk-runner] init failed for ${opts.conversationId}:`, err);
       const seq = persistence.nextSeq(opts.conversationId);
       this.emit(opts.conversationId, {
         type: 'error',
@@ -132,19 +62,77 @@ export class ActiveQuery {
         seq,
         message: friendlyErrorMessage(err),
       });
-      // Tear ourselves down so the next sendUserText doesn't try to write
-      // to the dead transport (which throws inside the SDK and crashes
-      // the worker if not caught).
       this.markDead();
     });
+  }
+
+  // Async initialization: opens the SSH tunnel (if remote), creates the SDK
+  // query, and starts the reader loop.
+  private async init() {
+    const canUseTool = this.broker.createCallback(this.opts.conversationId, this.opts.permissionTimeoutMs);
+
+    const parsed = parseWorkspacePath(this.opts.cwd);
+    const isRemote = parsed.kind === 'remote';
+    const remote = isRemote ? (parsed as RemoteWorkspace) : null;
+
+    // For remote workspaces, open the tunnel BEFORE creating the query.
+    // The SDK's spawnClaudeCodeProcess callback must be synchronous — it
+    // can't await tunnel.open() inside the callback.
+    if (remote) {
+      this.tunnel = new SshTunnel(remote, this.opts.conversationId);
+      await this.tunnel.open();
+    }
+
+    const tunnel = this.tunnel;
+
+    this.q = query({
+      prompt: this.iterator(),
+      options: {
+        cwd: remote ? process.cwd() : this.opts.cwd,
+        model: this.opts.model,
+        permissionMode: this.opts.permissionMode === 'ask' ? 'default' : this.opts.permissionMode,
+        canUseTool,
+        mcpServers: this.opts.mcpServers,
+        settingSources: ['project'],
+        systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const },
+        tools: { type: 'preset', preset: 'claude_code' },
+        includePartialMessages: true,
+        abortController: this.abortController,
+        // For remote workspaces, spawn the CLI via the remote control
+        // server's RPC protocol. The tunnel is already open so this
+        // callback is synchronous — it just connects and spawns.
+        ...(remote && tunnel
+          ? {
+              spawnClaudeCodeProcess: (sdkOpts: SdkSpawnOptions) =>
+                spawnRemoteClaude(remote, tunnel, sdkOpts),
+            }
+          : {}),
+        ...(this.opts.sdkSessionId && this.opts.sdkSessionId.length > 0
+          ? { resume: this.opts.sdkSessionId, forkSession: false }
+          : {}),
+      },
+    });
+
+    // Reader loop.
+    try {
+      await this.runReaderLoop();
+    } catch (err) {
+      console.error(`[sdk-runner] reader loop crashed for ${this.opts.conversationId}:`, err);
+      const seq = persistence.nextSeq(this.opts.conversationId);
+      this.emit(this.opts.conversationId, {
+        type: 'error',
+        conversationId: this.opts.conversationId,
+        seq,
+        message: friendlyErrorMessage(err),
+      });
+      this.markDead();
+    }
   }
 
   private markDead() {
     if (this.dead) return;
     this.dead = true;
     this.done = true;
-    // Drain any pending input resolvers so the SDK iterator returns
-    // cleanly and the SDK lets go of its end of the stream.
     for (const r of this.queueResolvers) {
       try {
         r({ value: undefined as never, done: true });
@@ -153,11 +141,7 @@ export class ActiveQuery {
       }
     }
     this.queueResolvers = [];
-    // Resolve any pending permission prompts with deny so the UI doesn't
-    // hang on a bubble forever.
     this.broker.clearForConversation(this.opts.conversationId);
-    // Tell the SessionManager to evict us so the next start_or_resume
-    // creates a fresh ActiveQuery.
     if (this.onDeadCallback) {
       try {
         this.onDeadCallback();
@@ -167,7 +151,6 @@ export class ActiveQuery {
     }
   }
 
-  // Implements the AsyncIterable<SDKUserMessage> that the SDK consumes.
   private async *iterator(): AsyncGenerator<SDKUserMessage> {
     while (!this.done) {
       if (this.queue.length > 0) {
@@ -184,9 +167,6 @@ export class ActiveQuery {
 
   sendUserText(text: string) {
     if (this.dead) {
-      // The underlying claude process is gone — likely the previous
-      // attempt crashed. Surface a clear error and let the route handler
-      // re-spawn on next start_or_resume.
       const seq = persistence.nextSeq(this.opts.conversationId);
       this.emit(this.opts.conversationId, {
         type: 'error',
@@ -207,8 +187,6 @@ export class ActiveQuery {
       session_id: this.opts.sdkSessionId ?? '',
     } as unknown as SDKUserMessage;
 
-    // Persist the user message immediately so it shows up in history even
-    // before the SDK echoes it back.
     const seq = persistence.nextSeq(this.opts.conversationId);
     const messageId = persistence.writeMessage({
       conversationId: this.opts.conversationId,
@@ -234,7 +212,7 @@ export class ActiveQuery {
   }
 
   async setPermissionMode(mode: PermissionMode) {
-    if (this.dead) return;
+    if (this.dead || !this.q) return;
     this.lastActivity = Date.now();
     const sdkMode = mode === 'ask' ? 'default' : mode;
     try {
@@ -245,7 +223,7 @@ export class ActiveQuery {
   }
 
   async setModel(model: ModelId) {
-    if (this.dead) return;
+    if (this.dead || !this.q) return;
     this.lastActivity = Date.now();
     try {
       await this.q.setModel(model);
@@ -257,20 +235,16 @@ export class ActiveQuery {
   async interrupt() {
     if (this.dead) return;
     try {
-      await this.q.interrupt();
+      if (this.q) await this.q.interrupt();
     } catch (err) {
       console.error('[sdk-runner] interrupt failed:', err);
     }
     this.abortController.abort();
-    // Clear the saved session ID so the next start_or_resume creates a
-    // fresh session instead of trying to --resume a session file that
-    // was potentially corrupted by the interrupt (the remote claude
-    // gets SIGHUPed when ssh drops and may not save cleanly).
     persistence.setSdkSessionId(this.opts.conversationId, '');
   }
 
   async listSlashCommands(): Promise<Array<{ name: string; description: string; argumentHint: string }>> {
-    if (this.dead) return [];
+    if (this.dead || !this.q) return [];
     try {
       const cmds = await this.q.supportedCommands();
       return cmds;
@@ -286,14 +260,18 @@ export class ActiveQuery {
     this.queueResolvers = [];
     this.abortController.abort();
     this.broker.clearForConversation(this.opts.conversationId);
+    if (this.tunnel) {
+      this.tunnel.close();
+      this.tunnel = null;
+    }
   }
 
   get conversationId() {
     return this.opts.conversationId;
   }
 
-  // Drain SDKMessages from the SDK and turn each into SQLite writes + SSE frames.
   private async runReaderLoop() {
+    if (!this.q) return;
     const convId = this.opts.conversationId;
     try {
       for await (const msg of this.q) {
@@ -307,335 +285,197 @@ export class ActiveQuery {
   }
 
   private handleSdkMessage(convId: string, msg: SDKMessage) {
-    switch (msg.type) {
-      case 'system': {
-        const anyMsg = msg as unknown as { session_id?: string; subtype?: string };
-        if (anyMsg.session_id) persistence.setSdkSessionId(convId, anyMsg.session_id);
-        const seq = persistence.nextSeq(convId);
-        // Persist init/system metadata so we can debug what claude
-        // actually loaded — memory paths, skills list, mcp status, etc.
-        // The frontend currently ignores `system` rows when hydrating
-        // so they don't clutter the chat view.
-        persistence.writeMessage({
-          conversationId: convId,
-          role: 'system',
-          sdkMessageType: `system${anyMsg.subtype ? `:${anyMsg.subtype}` : ''}`,
-          content: msg,
-          seq,
-        });
-        if (anyMsg.subtype === 'init') {
-          // Compact one-line console log so we can spot what claude
-          // loaded without grovelling through the SQLite blob.
-          const init = msg as unknown as {
-            cwd?: string;
-            tools?: string[];
-            mcp_servers?: Array<{ name?: string; status?: string }>;
-            slash_commands?: string[];
-          };
-          console.log(
-            `[sdk-runner] system:init for ${convId}: cwd=${init.cwd ?? '?'} ` +
-              `tools=${(init.tools ?? []).length} ` +
-              `mcp=${(init.mcp_servers ?? []).map((m) => `${m.name}(${m.status})`).join(',') || 'none'} ` +
-              `commands=${(init.slash_commands ?? []).length}`,
-          );
-        }
-        this.emit(convId, { type: 'system', conversationId: convId, seq, payload: msg });
-        return;
-      }
-      case 'assistant': {
-        const assistantMsg = msg as unknown as {
-          message: { id?: string; content: unknown };
+    handleSdkMessage(convId, msg as unknown as Record<string, unknown>, this.emit, this.streamState);
+  }
+}
+
+// Mutable streaming state shared between the caller's reader loop and this
+// function.
+export type StreamingState = { currentStreamingMessageId: string | null };
+
+// Standalone message handler. Consumes one parsed message from the claude
+// stream-json protocol, persists it, and emits the corresponding StreamFrame(s).
+export function handleSdkMessage(
+  convId: string,
+  msg: Record<string, unknown>,
+  emit: (conversationId: string, frame: StreamFrame) => void,
+  state: StreamingState,
+): void {
+  switch (msg.type) {
+    case 'system': {
+      const anyMsg = msg as { session_id?: string; subtype?: string };
+      if (anyMsg.session_id) persistence.setSdkSessionId(convId, anyMsg.session_id);
+      const seq = persistence.nextSeq(convId);
+      persistence.writeMessage({
+        conversationId: convId,
+        role: 'system',
+        sdkMessageType: `system${anyMsg.subtype ? `:${anyMsg.subtype}` : ''}`,
+        content: msg,
+        seq,
+      });
+      if (anyMsg.subtype === 'init') {
+        const init = msg as {
+          cwd?: string;
+          tools?: string[];
+          mcp_servers?: Array<{ name?: string; status?: string }>;
+          slash_commands?: string[];
         };
-        const content = assistantMsg.message?.content ?? [];
-        const toolUses = Array.isArray(content)
-          ? (content as Array<{ type?: string }>).filter((b) => b.type === 'tool_use')
-          : [];
-        const seq = persistence.nextSeq(convId);
-        // Prefer the Anthropic message id so the UI can match this final
-        // frame against the partial deltas it was streaming. Fall back to
-        // the persistence row id for anything exotic.
-        const anthropicMessageId = assistantMsg.message?.id ?? null;
-        const rowId = persistence.writeMessage({
-          conversationId: convId,
-          role: 'assistant',
-          sdkMessageType: 'assistant',
-          content,
-          toolCalls: toolUses.length > 0 ? toolUses : undefined,
-          seq,
-        });
-        const messageId = anthropicMessageId ?? rowId;
-        this.emit(convId, {
-          type: 'assistant_message',
-          conversationId: convId,
-          seq,
-          messageId,
-          content,
-        });
-        // Done streaming this turn.
-        if (anthropicMessageId && anthropicMessageId === this.currentStreamingMessageId) {
-          this.currentStreamingMessageId = null;
-        }
-        // Also emit tool_use frames for the UI to render collapsible cards.
-        for (const tu of toolUses as Array<{ id?: string; name?: string; input?: unknown }>) {
-          const tuSeq = persistence.nextSeq(convId);
-          this.emit(convId, {
-            type: 'tool_use',
-            conversationId: convId,
-            seq: tuSeq,
-            toolUseId: tu.id ?? randomUUID(),
-            name: tu.name ?? 'unknown',
-            input: tu.input ?? {},
-          });
-        }
-        return;
+        console.log(
+          `[sdk-runner] system:init for ${convId}: cwd=${init.cwd ?? '?'} ` +
+            `tools=${(init.tools ?? []).length} ` +
+            `mcp=${(init.mcp_servers ?? []).map((m) => `${m.name}(${m.status})`).join(',') || 'none'} ` +
+            `commands=${(init.slash_commands ?? []).length}`,
+        );
       }
-      case 'user': {
-        // Tool results from the SDK are delivered as user messages with tool_result blocks.
-        const userMsg = msg as unknown as { message: { content: unknown } };
-        const content = userMsg.message?.content ?? [];
-        if (Array.isArray(content)) {
-          for (const block of content as Array<{
-            type?: string;
-            tool_use_id?: string;
-            content?: unknown;
-            is_error?: boolean;
-          }>) {
-            if (block.type === 'tool_result') {
-              const seq = persistence.nextSeq(convId);
-              persistence.writeMessage({
-                conversationId: convId,
-                role: 'tool_result',
-                sdkMessageType: 'tool_result',
-                content: block,
-                seq,
-              });
-              this.emit(convId, {
-                type: 'tool_result',
-                conversationId: convId,
-                seq,
-                toolUseId: block.tool_use_id ?? '',
-                content: block.content ?? '',
-                isError: block.is_error ?? false,
-              });
-            }
+      emit(convId, { type: 'system', conversationId: convId, seq, payload: msg });
+      return;
+    }
+    case 'assistant': {
+      const assistantMsg = msg as {
+        message: { id?: string; content: unknown };
+      };
+      const content = assistantMsg.message?.content ?? [];
+      const toolUses = Array.isArray(content)
+        ? (content as Array<{ type?: string }>).filter((b) => b.type === 'tool_use')
+        : [];
+      const seq = persistence.nextSeq(convId);
+      const anthropicMessageId = assistantMsg.message?.id ?? null;
+      const rowId = persistence.writeMessage({
+        conversationId: convId,
+        role: 'assistant',
+        sdkMessageType: 'assistant',
+        content,
+        toolCalls: toolUses.length > 0 ? toolUses : undefined,
+        seq,
+      });
+      const messageId = anthropicMessageId ?? rowId;
+      emit(convId, {
+        type: 'assistant_message',
+        conversationId: convId,
+        seq,
+        messageId,
+        content,
+      });
+      if (anthropicMessageId && anthropicMessageId === state.currentStreamingMessageId) {
+        state.currentStreamingMessageId = null;
+      }
+      for (const tu of toolUses as Array<{ id?: string; name?: string; input?: unknown }>) {
+        const tuSeq = persistence.nextSeq(convId);
+        emit(convId, {
+          type: 'tool_use',
+          conversationId: convId,
+          seq: tuSeq,
+          toolUseId: tu.id ?? randomUUID(),
+          name: tu.name ?? 'unknown',
+          input: tu.input ?? {},
+        });
+      }
+      return;
+    }
+    case 'user': {
+      const userMsg = msg as { message: { content: unknown } };
+      const content = userMsg.message?.content ?? [];
+      if (Array.isArray(content)) {
+        for (const block of content as Array<{
+          type?: string;
+          tool_use_id?: string;
+          content?: unknown;
+          is_error?: boolean;
+        }>) {
+          if (block.type === 'tool_result') {
+            const seq = persistence.nextSeq(convId);
+            persistence.writeMessage({
+              conversationId: convId,
+              role: 'tool_result',
+              sdkMessageType: 'tool_result',
+              content: block,
+              seq,
+            });
+            emit(convId, {
+              type: 'tool_result',
+              conversationId: convId,
+              seq,
+              toolUseId: block.tool_use_id ?? '',
+              content: block.content ?? '',
+              isError: block.is_error ?? false,
+            });
           }
         }
+      }
+      return;
+    }
+    case 'stream_event': {
+      const ev = msg as {
+        event?: {
+          type?: string;
+          message?: { id?: string };
+          delta?: { type?: string; text?: string };
+        };
+      };
+      const inner = ev.event;
+      if (!inner) return;
+
+      if (inner.type === 'message_start' && inner.message?.id) {
+        state.currentStreamingMessageId = inner.message.id;
         return;
       }
-      case 'stream_event' as SDKMessage['type']: {
-        // Partial assistant token deltas — emit without persisting.
-        const ev = msg as unknown as {
-          event?: {
-            type?: string;
-            message?: { id?: string };
-            delta?: { type?: string; text?: string };
-          };
-        };
-        const inner = ev.event;
-        if (!inner) return;
 
-        // Capture the Anthropic message id for this turn so every delta
-        // gets the same messageId and the UI streams into one bubble.
-        if (inner.type === 'message_start' && inner.message?.id) {
-          this.currentStreamingMessageId = inner.message.id;
-          return;
-        }
-
-        if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {
-          // If we somehow missed message_start, still emit but with a
-          // placeholder id; worst case the UI falls back to batching on
-          // the last streaming bubble.
-          const messageId = this.currentStreamingMessageId ?? 'streaming';
-          const seq = persistence.nextSeq(convId);
-          this.emit(convId, {
-            type: 'partial_assistant_text',
-            conversationId: convId,
-            seq,
-            delta: inner.delta.text ?? '',
-            messageId,
-          });
-          return;
-        }
-
-        if (inner.type === 'message_stop') {
-          // Don't clear currentStreamingMessageId here — the final
-          // SDKAssistantMessage may still arrive with more content; we
-          // clear in the 'assistant' case once we've seen it.
-          return;
-        }
-        return;
-      }
-      case 'result': {
-        const result = msg as unknown as {
-          duration_ms?: number;
-          num_turns?: number;
-          total_cost_usd?: number;
-          is_error?: boolean;
-        };
+      if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta') {
+        const messageId = state.currentStreamingMessageId ?? 'streaming';
         const seq = persistence.nextSeq(convId);
-        this.emit(convId, {
-          type: 'result',
+        emit(convId, {
+          type: 'partial_assistant_text',
           conversationId: convId,
           seq,
-          durationMs: result.duration_ms,
-          numTurns: result.num_turns,
-          totalCostUsd: result.total_cost_usd,
-          isError: result.is_error,
+          delta: inner.delta.text ?? '',
+          messageId,
         });
         return;
       }
-      default: {
-        const seq = persistence.nextSeq(convId);
-        this.emit(convId, { type: 'system', conversationId: convId, seq, payload: msg });
+
+      if (inner.type === 'message_stop') {
+        return;
       }
+      return;
+    }
+    case 'result': {
+      const result = msg as {
+        duration_ms?: number;
+        num_turns?: number;
+        total_cost_usd?: number;
+        is_error?: boolean;
+      };
+      const seq = persistence.nextSeq(convId);
+      emit(convId, {
+        type: 'result',
+        conversationId: convId,
+        seq,
+        durationMs: result.duration_ms,
+        numTurns: result.num_turns,
+        totalCostUsd: result.total_cost_usd,
+        isError: result.is_error,
+      });
+      return;
+    }
+    default: {
+      const seq = persistence.nextSeq(convId);
+      emit(convId, { type: 'system', conversationId: convId, seq, payload: msg });
     }
   }
 }
 
-// Single-quote a string for safe inclusion in a remote sh command.
-function shq(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
-// Spawn `claude` on a remote host over SSH and return a ChildProcess that
-// satisfies the SDK's SpawnedProcess interface. This is the
-// spawnClaudeCodeProcess callback — the SDK calls it instead of its
-// default local spawn, receives the ChildProcess back, and pipes the
-// stream-json protocol through ssh transparently. Because we're using
-// the SDK's proper extension point (not pathToClaudeCodeExecutable), the
-// client identity / API headers stay identical to a standard SDK spawn —
-// no third-party-harness classification.
-function spawnSshClaude(
-  remote: RemoteWorkspace,
-  sdkOpts: SdkSpawnOptions,
-) {
-  const target = sshTarget(remote);
-
-  // Build the remote bootstrap script. Same two-shell dance: bash
-  // --noprofile --norc outer shell (silent stdout) captures PATH from
-  // a bash -lic subshell, then cd + exec claude with the SDK's args.
-  //
-  // The SDK passes args as ['/local/path/to/cli.js', '--flags...']
-  // because it normally spawns `node cli.js --flags`. We only want
-  // the CLI flags for the remote — the entry-script path is a local
-  // path that doesn't exist on the remote box. Filter out anything
-  // that looks like a local script path (starts with / and ends with
-  // .js/.mjs) so we just get the --flag arguments.
-  const cliFlags = sdkOpts.args.filter(
-    (a) => !(/^\//.test(a) && /\.(m?js|cjs)$/.test(a)),
-  );
-  const argsString = cliFlags.map((a) => shq(a)).join(' ');
-  const remoteScript = [
-    'set -e',
-    '',
-    'RAW="$(bash -lic \'command printf "BRBEGIN%sBREND" "$PATH"\' </dev/null 2>/dev/null)" || RAW=""',
-    'case "$RAW" in',
-    '  *BRBEGIN*BREND*)',
-    '    P="${RAW#*BRBEGIN}"',
-    '    P="${P%BREND*}"',
-    '    if [ -n "$P" ]; then',
-    '      export PATH="$P"',
-    '    fi',
-    '    ;;',
-    'esac',
-    '',
-    `cd ${shq(remote.path)} || { echo "[boardroom-ssh] cd failed: ${remote.path}" >&2; exit 1; }`,
-    `exec claude ${argsString}`,
-    '',
-  ].join('\n');
-
-  const b64 = Buffer.from(remoteScript, 'utf8').toString('base64');
-  const remoteCommand = `bash --noprofile --norc -c 'eval "$(printf %s ${b64} | base64 -d)"'`;
-
-  const sshArgs = [
-    '-o', 'BatchMode=yes',
-    '-o', 'ServerAliveInterval=30',
-    '-o', 'ServerAliveCountMax=3',
-    '-o', 'ControlMaster=auto',
-    '-o', `ControlPath=/tmp/.boardroom-ssh-${process.getuid?.() ?? 'x'}-%C`,
-    '-o', 'ControlPersist=10m',
-  ];
-  if (remote.port) sshArgs.push('-p', String(remote.port));
-  sshArgs.push(target, '--', remoteCommand);
-
-  // Strip local Anthropic credentials from the child env so they can't
-  // leak to the remote. The remote claude uses its own auth.
-  const childEnv: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(sdkOpts.env)) {
-    if (k === 'ANTHROPIC_API_KEY' || k === 'CLAUDE_CODE_OAUTH_TOKEN') continue;
-    childEnv[k] = v;
-  }
-
-  const child = spawn('ssh', sshArgs, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: childEnv as NodeJS.ProcessEnv,
-  });
-
-  // Wire the SDK's abort signal to kill the ssh child.
-  const onAbort = () => {
-    if (!child.killed) child.kill('SIGTERM');
-  };
-  sdkOpts.signal.addEventListener('abort', onAbort, { once: true });
-
-  // Debug logging — capture stderr and dump on exit.
-  const stderrChunks: Buffer[] = [];
-  child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-  child.on('exit', (code, signal) => {
-    try {
-      const logPath = '/tmp/boardroom-ssh-last.log';
-      mkdirSync(dirname(logPath), { recursive: true });
-      const stderrText = Buffer.concat(stderrChunks).toString('utf8');
-      const lines = [
-        `# ${new Date().toISOString()}  exit=${code ?? 'null'} signal=${signal ?? 'null'}`,
-        `host: ${target}`,
-        `cwd:  ${remote.path}`,
-        `port: ${remote.port ?? 'default'}`,
-        `auth: remote (we don't forward credentials)`,
-        `args: ${JSON.stringify(sdkOpts.args)}`,
-        `cmd:  ssh ${sshArgs.join(' ')}`,
-        stderrText ? `stderr:\n${stderrText}` : 'stderr: (empty)',
-        '',
-      ];
-      appendFileSync(logPath, lines.join('\n'));
-    } catch {
-      // ignore log failures
-    }
-    if (code !== 0) {
-      const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
-      console.error(
-        `[spawnSshClaude] ssh exited ${code}${signal ? ` (${signal})` : ''}` +
-          (stderrText ? ` stderr: ${stderrText}` : '') +
-          ` — debug log: /tmp/boardroom-ssh-last.log`,
-      );
-    }
-  });
-
-  // ChildProcess satisfies SpawnedProcess at runtime (stdin/stdout are
-  // Writable/Readable when spawned with stdio: 'pipe'). TypeScript
-  // complains because ChildProcess types stdin as `Writable | null` —
-  // we know it's non-null here because of the pipe stdio config.
-  return child as unknown as import('@anthropic-ai/claude-agent-sdk').SpawnedProcess;
-}
-
-// Convert raw SDK errors into user-facing message strings. Most SDK errors
-// are opaque ("Claude Code process exited with code N") — we add a hint
-// for the common ones so the UI gives the user something to act on.
 function friendlyErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/exited with code 127/.test(raw)) {
     return (
-      'claude exited with code 127 (command not found). For SSH workspaces ' +
-      'this usually means `claude` is not on PATH for the remote login shell. ' +
-      'Run `bash -lic "which claude"` on the remote — if that prints a path ' +
-      'but Boardroom still fails, check /tmp/boardroom-ssh-last.log on the ' +
-      'Boardroom host for the captured ssh stderr.'
+      'claude exited with code 127 (command not found). ' +
+      'Check that the remote server is running at ~/.claude/remote/.'
     );
   }
   if (/exited with code 255/.test(raw)) {
     return (
       'ssh exited with code 255 (connection failed). Check the host is ' +
-      'reachable and your key auth works non-interactively. Full debug log: ' +
-      '/tmp/boardroom-ssh-last.log on the Boardroom host.'
+      'reachable and your key auth works non-interactively.'
     );
   }
   return raw;

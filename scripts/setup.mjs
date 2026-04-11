@@ -3,7 +3,7 @@
 // generates .env if missing, runs migrations. Idempotent — safe to
 // run multiple times.
 
-import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, chmodSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -49,8 +49,8 @@ if (!existsSync(envPath)) {
     const secret = randomBytes(32).toString('base64');
     content = content.replace(/^AUTH_SECRET=$/m, `AUTH_SECRET=${secret}`);
     const { writeFileSync } = await import('node:fs');
-    writeFileSync(envPath, content);
-    log('Created .env from .env.example (AUTH_SECRET auto-generated).');
+    writeFileSync(envPath, content, { mode: 0o600 });
+    log('Created .env from .env.example (AUTH_SECRET auto-generated, mode 600).');
     log('Edit .env to set BOARDROOM_USERNAME and BOARDROOM_PASSWORD.');
   } else {
     warn('.env.example not found — create .env manually.');

@@ -327,6 +327,21 @@ code {
   background: var(--success);
   box-shadow: 0 0 6px var(--success);
 }
+.sidebar-logout {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+.sidebar-logout:hover {
+  color: var(--text);
+}
 
 /* ---------- Main panel ---------- */
 
@@ -1162,6 +1177,10 @@ code {
 .signin-form button {
   margin-top: 4px;
   width: 100%;
+  /* WCAG AA: #0066cc on white = ~5.7:1 contrast ratio (> 4.5:1 minimum).
+     The global --accent (#0a84ff) only scores 3.64:1 with white text. */
+  background: #0066cc;
+  border-color: #0066cc;
 }
 
 .signin-divider {

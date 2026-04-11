@@ -1,6 +1,7 @@
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { authConfig as baseAuthConfig } from './auth.config';
+import { isRateLimited } from './rate-limit';
 
 // Pure-JS constant-time string compare. Avoids depending on `node:crypto`
 // so this module can be statically analysed by Next's webpack without
@@ -60,6 +61,16 @@ const credentialsProvider = Credentials({
     password: { label: 'Password', type: 'password' },
   },
   async authorize(raw) {
+    // Rate-limit at the provider level — this fires regardless of whether the
+    // request came through the server action form or directly via the Auth.js
+    // callback endpoint (/api/auth/callback/credentials).
+    if (isRateLimited('auth:credentials', 3, 60_000)) {
+      // Returning null tells Auth.js "invalid credentials" which redirects to
+      // the sign-in page with ?error=CredentialsSignin. The UI maps that to a
+      // generic error message so we don't leak that rate-limiting kicked in vs
+      // wrong password.
+      return null;
+    }
     const username = typeof raw?.username === 'string' ? raw.username : '';
     const password = typeof raw?.password === 'string' ? raw.password : '';
     const expectedUser = process.env.BOARDROOM_USERNAME ?? '';

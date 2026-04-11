@@ -27,9 +27,10 @@ export class TerminalWsServer {
   constructor(private readonly port: number) {}
 
   listen() {
+    // Return 404 for plain HTTP requests — this port only serves WebSocket.
     this.http = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('Boardroom agent WebSocket endpoint — use /terminal\n');
+      res.writeHead(404);
+      res.end();
     });
 
     this.wss = new WebSocketServer({
@@ -57,10 +58,13 @@ export class TerminalWsServer {
       this.handleConnection(ws);
     });
 
+    // Bind to loopback only by default. In Docker, AGENT_WORKER_WS_HOST=0.0.0.0
+    // opens it to the container network (which is isolated by Docker networking).
+    const host = process.env.AGENT_WORKER_WS_HOST ?? '127.0.0.1';
     return new Promise<void>((resolve, reject) => {
       this.http!.once('error', reject);
-      this.http!.listen(this.port, () => {
-        console.log(`[ws-server] terminal WebSocket listening on :${this.port}/terminal`);
+      this.http!.listen(this.port, host, () => {
+        console.log(`[ws-server] terminal WebSocket listening on ${host}:${this.port}/terminal`);
         resolve();
       });
     });

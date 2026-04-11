@@ -14,6 +14,20 @@ const nextConfig = {
 
   // Security headers on every response.
   async headers() {
+    const isDev = process.env.NODE_ENV !== 'production';
+
+    // CSP: tighten for production, relax for dev (Next.js HMR needs eval).
+    const scriptSrc = isDev
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self' 'unsafe-inline'";
+
+    // WebSocket: scope to localhost/127.0.0.1 instead of wildcard *:*.
+    // In production behind a reverse proxy the WS is typically on the same
+    // origin, but we keep localhost for direct-access deployments.
+    const connectSrc = isDev
+      ? "connect-src 'self' ws://localhost:* ws://127.0.0.1:*"
+      : "connect-src 'self' ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*";
+
     return [
       {
         source: '/(.*)',
@@ -30,13 +44,9 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Next.js requires inline scripts + eval for dev; unsafe-inline
-              // for production RSC payloads.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              scriptSrc,
               "style-src 'self' 'unsafe-inline'",
-              // Allow connecting to the terminal WebSocket on any port on
-              // the same host, plus the SSE stream.
-              `connect-src 'self' ws://*:* wss://*:*`,
+              connectSrc,
               "img-src 'self' data: blob:",
               "font-src 'self'",
               "frame-ancestors 'none'",

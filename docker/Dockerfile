@@ -32,7 +32,8 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production DATABASE_PATH=/app/data/boardroom.db \
     AGENT_WORKER_SOCKET=/tmp/boardroom-agent.sock \
-    AGENT_WORKER_WS_PORT=8099 PORT=3000 HOSTNAME=0.0.0.0
+    AGENT_WORKER_WS_PORT=8099 AGENT_WORKER_WS_HOST=0.0.0.0 \
+    PORT=3000 HOSTNAME=0.0.0.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
