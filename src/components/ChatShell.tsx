@@ -597,7 +597,16 @@ export function ChatShell({
             className="sidebar-logout"
             title="Sign out"
             aria-label="Sign out"
-            onClick={() => { window.location.href = '/api/auth/signout'; }}
+            onClick={async () => {
+              const res = await fetch('/api/auth/csrf');
+              const { csrfToken } = await res.json();
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = '/api/auth/signout';
+              form.innerHTML = `<input type="hidden" name="csrfToken" value="${csrfToken}">`;
+              document.body.appendChild(form);
+              form.submit();
+            }}
           >
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
           </button>
