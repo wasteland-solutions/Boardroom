@@ -15,7 +15,7 @@ services:
       # connects directly to this port (with an HMAC token minted by the
       # Next.js side after auth). Change AGENT_WORKER_WS_PORT in .env if
       # you need to move it.
-      - "8099:8099"
+      - "9099:9099"
 
     env_file:
       - .env
@@ -26,7 +26,7 @@ services:
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/boardroom.db
       - AGENT_WORKER_SOCKET=/tmp/boardroom-agent.sock
-      - AGENT_WORKER_WS_PORT=8099
+      - AGENT_WORKER_WS_PORT=9099
       - PORT=3000
 
     volumes:

@@ -32,7 +32,7 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production DATABASE_PATH=/app/data/boardroom.db \
     AGENT_WORKER_SOCKET=/tmp/boardroom-agent.sock \
-    AGENT_WORKER_WS_PORT=8099 AGENT_WORKER_WS_HOST=0.0.0.0 \
+    AGENT_WORKER_WS_PORT=9099 AGENT_WORKER_WS_HOST=0.0.0.0 \
     PORT=3000 HOSTNAME=0.0.0.0
 
 RUN apt-get update \
@@ -57,6 +57,6 @@ RUN mkdir -p /app/data /workspaces \
 
 USER boardroom
 VOLUME ["/app/data", "/workspaces"]
-EXPOSE 3000 8099
+EXPOSE 3000 9099
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "scripts/start.mjs"]

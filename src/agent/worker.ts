@@ -165,8 +165,8 @@ async function main() {
   console.log(`[boardroom-agent] listening on ${socketPath}`);
 
   // Terminal WebSocket server — separate port so it can be exposed in
-  // docker-compose independently. Default 8099.
-  const wsPort = Number(process.env.AGENT_WORKER_WS_PORT ?? 8099);
+  // docker-compose independently. Default 9099.
+  const wsPort = Number(process.env.AGENT_WORKER_WS_PORT ?? 9099);
   const wsServer = new TerminalWsServer(wsPort);
   try {
     await wsServer.listen();
