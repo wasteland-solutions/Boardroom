@@ -73,8 +73,14 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 await new Promise((r) => setTimeout(r, 300));
 
 // --- 3. Next.js (foreground) ---
-const nextBin = resolve(repoRoot, 'node_modules/next/dist/bin/next');
-const nextProc = spawn(process.execPath, [nextBin, 'start'], {
+// In standalone mode (output: 'standalone' in next.config.mjs), Next
+// builds a self-contained server.js. In dev/non-standalone, fall back
+// to `next start`.
+const standaloneServer = resolve(repoRoot, '.next/standalone/server.js');
+const nextArgs = existsSync(standaloneServer)
+  ? [standaloneServer]
+  : [resolve(repoRoot, 'node_modules/next/dist/bin/next'), 'start'];
+const nextProc = spawn(process.execPath, nextArgs, {
   stdio: 'inherit',
   env: process.env,
 });

@@ -17,15 +17,23 @@ COPY package.json pnpm-lock.yaml ./
 COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
 RUN pnpm install --frozen-lockfile
 
-# ---------- production deps only (no devDependencies) ----------
+# ---------- production deps only ----------
 FROM build-base AS prod-deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts \
     && pnpm rebuild better-sqlite3 node-pty \
+    # Fix node-pty spawn-helper permissions
     && node -e "const fs=require('fs'),p=require('path'); \
-       (function walk(d){try{fs.readdirSync(d,{withFileTypes:true}).forEach(e=>{const f=p.join(d,e.name); \
-       if(e.isDirectory())walk(f);else if(e.name==='spawn-helper'){fs.chmodSync(f,0o755)}})}catch{}})(p.resolve('node_modules'))"
+       (function w(d){try{fs.readdirSync(d,{withFileTypes:true}).forEach(e=>{const f=p.join(d,e.name); \
+       if(e.isDirectory())w(f);else if(e.name==='spawn-helper')fs.chmodSync(f,0o755)})}catch{}})(p.resolve('node_modules'))" \
+    # Strip prebuilt binaries for platforms we don't need in linux containers
+    && find node_modules -path '*/prebuilds/darwin-*' -exec rm -rf {} + 2>/dev/null || true \
+    && find node_modules -path '*/prebuilds/win32-*' -exec rm -rf {} + 2>/dev/null || true \
+    && find node_modules -path '*/@next/swc-darwin-*' -exec rm -rf {} + 2>/dev/null || true \
+    && find node_modules -path '*/@next/swc-win32-*' -exec rm -rf {} + 2>/dev/null || true \
+    && find node_modules -path '*/@img/sharp-libvips-darwin-*' -exec rm -rf {} + 2>/dev/null || true \
+    && find node_modules -path '*/@img/sharp-darwin-*' -exec rm -rf {} + 2>/dev/null || true
 
 # ---------- build ----------
 FROM build-base AS builder
@@ -53,14 +61,21 @@ RUN apt-get update \
 RUN groupadd --system --gid 1001 boardroom \
     && useradd --system --uid 1001 --gid boardroom --create-home boardroom
 
-# Only production node_modules — no typescript, eslint, drizzle-kit, etc.
+# Next.js standalone output — only the files Next actually imports,
+# ~30MB instead of ~300MB of full node_modules.
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# Prod node_modules for the agent worker (sdk, codex, node-pty, etc.)
+# The standalone output handles Next's own deps; this covers everything
+# the worker process needs that standalone doesn't trace.
 COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/.next ./.next
+
+# Build artifacts for the agent worker + migrations + scripts.
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/next.config.mjs ./
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/next.config.mjs ./
 
 RUN mkdir -p /app/data /workspaces \
     && chown -R boardroom:boardroom /app /workspaces

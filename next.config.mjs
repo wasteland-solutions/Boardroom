@@ -8,6 +8,10 @@ const nextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['@anthropic-ai/claude-agent-sdk', 'better-sqlite3'],
   outputFileTracingRoot: __dirname,
+  // Standalone output traces only the files/modules actually imported and
+  // copies them into .next/standalone. Drops the runtime from ~300MB
+  // (full node_modules) to ~30MB (only what Next.js needs).
+  output: 'standalone',
 
   // Strip the X-Powered-By: Next.js header.
   poweredByHeader: false,
