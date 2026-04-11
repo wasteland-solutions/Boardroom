@@ -89,6 +89,7 @@ export function ChatShell({
   initialMode?: 'chat' | 'terminal';
 }) {
   const router = useRouter();
+  const [liveCwds, setLiveCwds] = useState<Cwd[]>(cwds);
   const [blocks, setBlocks] = useState<DisplayBlock[]>(() => hydrateBlocks(initialMessages));
   const [lastSeq, setLastSeq] = useState<number>(() => maxSeq(initialMessages));
   const [sending, setSending] = useState(false);
@@ -615,7 +616,7 @@ export function ChatShell({
           <button className="icon-btn" onClick={() => setShowSettings(false)} title="Close" aria-label="Close">✕</button>
         </div>
         <div className="drawer-body">
-          <SettingsForm initialSettings={initialSettings} initialCwds={cwds} />
+          <SettingsForm initialSettings={initialSettings} initialCwds={liveCwds} onCwdsChange={setLiveCwds} />
         </div>
       </aside>
     </>
@@ -631,7 +632,7 @@ export function ChatShell({
             <button className="icon-btn" onClick={() => setShowNew(false)} title="Close" aria-label="Close">✕</button>
           </div>
           <div style={{ padding: 16, overflowY: 'auto' }}>
-            <NewConversationForm cwds={cwds} onOpenSettings={() => setShowSettings(true)} onClose={() => setShowNew(false)} />
+            <NewConversationForm cwds={liveCwds} onOpenSettings={() => setShowSettings(true)} onClose={() => setShowNew(false)} />
           </div>
         </div>
       </div>

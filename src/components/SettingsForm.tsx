@@ -14,9 +14,11 @@ import { DirectoryBrowser } from './DirectoryBrowser';
 export function SettingsForm({
   initialSettings,
   initialCwds,
+  onCwdsChange,
 }: {
   initialSettings: AppSettings;
   initialCwds: Cwd[];
+  onCwdsChange?: (cwds: Cwd[]) => void;
 }) {
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [mcpText, setMcpText] = useState(JSON.stringify(initialSettings.mcpServers, null, 2));
@@ -84,8 +86,9 @@ export function SettingsForm({
     if (res.ok) {
       const { cwd } = (await res.json()) as { cwd: Cwd };
       setCwdList((prev) => {
-        const without = prev.filter((c) => c.path !== cwd.path);
-        return [...without, { ...cwd, createdAt: Date.now() }];
+        const next = [...prev.filter((c) => c.path !== cwd.path), { ...cwd, createdAt: Date.now() }];
+        onCwdsChange?.(next);
+        return next;
       });
       setNewHost('');
       setNewPath('');
@@ -99,7 +102,11 @@ export function SettingsForm({
   const removeCwd = async (path: string) => {
     const res = await fetch(`/api/cwds?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
     if (res.ok) {
-      setCwdList((prev) => prev.filter((c) => c.path !== path));
+      setCwdList((prev) => {
+        const next = prev.filter((c) => c.path !== path);
+        onCwdsChange?.(next);
+        return next;
+      });
     }
   };
 
