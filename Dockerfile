@@ -42,9 +42,13 @@ RUN apt-get update \
 RUN groupadd --system --gid 1001 boardroom \
     && useradd --system --uid 1001 --gid boardroom --create-home boardroom
 
-COPY --from=deps /app/node_modules ./node_modules
+# Order matters: standalone includes a slim node_modules with only what
+# Next.js traced. We copy it FIRST, then overlay the full deps
+# node_modules on top so native bindings (better-sqlite3, node-pty)
+# and the agent SDK are present at runtime.
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/scripts ./scripts
