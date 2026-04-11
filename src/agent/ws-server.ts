@@ -60,7 +60,7 @@ export class TerminalWsServer {
 
     // Bind to loopback only by default. In Docker, AGENT_WORKER_WS_HOST=0.0.0.0
     // opens it to the container network (which is isolated by Docker networking).
-    const host = process.env.AGENT_WORKER_WS_HOST ?? '127.0.0.1';
+    const host = process.env.AGENT_WORKER_WS_HOST ?? '0.0.0.0';
     return new Promise<void>((resolve, reject) => {
       this.http!.once('error', reject);
       this.http!.listen(this.port, host, () => {
