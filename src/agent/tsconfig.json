@@ -4,7 +4,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "ES2022",
-    "outDir": "../../dist/agent",
+    "outDir": "../../dist",
     "noEmit": false,
     "jsx": "preserve",
     "types": ["node"],
