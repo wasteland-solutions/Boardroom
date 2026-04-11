@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Conversation, Cwd } from '@/lib/schema';
+import { Markdown } from './Markdown';
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
@@ -771,6 +772,24 @@ export function ChatShell({
   );
 }
 
+function ExpandableCode({ children, maxLines = 4 }: { children: string; maxLines?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = children.split('\n');
+  const needsExpand = lines.length > maxLines;
+  const display = expanded ? children : lines.slice(0, maxLines).join('\n');
+
+  return (
+    <div className="tool-input">
+      <pre>{display}{needsExpand && !expanded ? '…' : ''}</pre>
+      {needsExpand && (
+        <button className="expand-toggle" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show less' : `Show all (${lines.length} lines)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MessageBlock({
   block,
   onResolve,
@@ -790,7 +809,9 @@ function MessageBlock({
     return (
       <div className={`msg assistant${block.streaming ? ' streaming' : ''}`}>
         <div className="msg-role">Claude Code</div>
-        <div className="msg-bubble">{block.text || (block.streaming ? '' : '…')}</div>
+        <div className="msg-bubble">
+          {block.text ? <Markdown>{block.text}</Markdown> : (block.streaming ? '' : '…')}
+        </div>
       </div>
     );
   }
@@ -801,7 +822,7 @@ function MessageBlock({
           <div className="tool-header">
             <span className="tool-name">{block.name}</span>
           </div>
-          <div className="tool-input">{truncate(JSON.stringify(block.input), 160)}</div>
+          <ExpandableCode>{JSON.stringify(block.input, null, 2)}</ExpandableCode>
         </div>
       </div>
     );
@@ -815,7 +836,7 @@ function MessageBlock({
               {block.isError ? '✗ tool error' : '✓ tool result'}
             </span>
           </div>
-          <div className="tool-input">{truncate(stringifyContent(block.content), 260)}</div>
+          <ExpandableCode maxLines={6}>{stringifyContent(block.content)}</ExpandableCode>
         </div>
       </div>
     );
@@ -826,7 +847,8 @@ function MessageBlock({
         <div className="permission-prompt">
           <div className="title">⚠ Permission request</div>
           <div className="tool">
-            <strong>{block.toolName}</strong> {truncate(JSON.stringify(block.input), 200)}
+            <strong>{block.toolName}</strong>
+            <ExpandableCode>{JSON.stringify(block.input, null, 2)}</ExpandableCode>
           </div>
           {block.resolved ? (
             <div className="resolved">
@@ -1173,7 +1195,3 @@ function maxSeq(rows: StoredMessage[]): number {
   return rows.reduce((max, r) => (r.seq > max ? r.seq : max), 0);
 }
 
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, n - 1) + '…';
-}
