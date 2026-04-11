@@ -14,12 +14,10 @@ FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml .npmrc ./
 COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
-# .npmrc has enable-pre-post-scripts=true so better-sqlite3's
-# prebuild-install and node-pty's postinstall actually run.
 RUN pnpm install --frozen-lockfile
-
-# Verify the native binding exists before proceeding.
+# Verify native bindings compiled
 RUN node -e "require('better-sqlite3')" && echo "better-sqlite3 OK"
+RUN node -e "require('node-pty')" && echo "node-pty OK"
 
 # ---------- build ----------
 FROM base AS builder
@@ -42,13 +40,10 @@ RUN apt-get update \
 RUN groupadd --system --gid 1001 boardroom \
     && useradd --system --uid 1001 --gid boardroom --create-home boardroom
 
-# Order matters: standalone includes a slim node_modules with only what
-# Next.js traced. We copy it FIRST, then overlay the full deps
-# node_modules on top so native bindings (better-sqlite3, node-pty)
-# and the agent SDK are present at runtime.
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+# Copy node_modules from deps (has compiled native bindings)
 COPY --from=deps /app/node_modules ./node_modules
+# Copy build output
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/scripts ./scripts
