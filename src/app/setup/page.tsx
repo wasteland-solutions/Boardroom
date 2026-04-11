@@ -17,8 +17,6 @@ export default async function SetupPage({
     ? 'Password must be at least 8 characters.'
     : error === 'empty'
     ? 'Username and password are required.'
-    : error === 'nokey'
-    ? 'An API key or OAuth token is required.'
     : error
     ? 'Something went wrong. Try again.'
     : null;
@@ -37,8 +35,6 @@ export default async function SetupPage({
     if (!username || !password) redirect('/setup?error=empty');
     if (password.length < 8) redirect('/setup?error=short');
     if (password !== confirm) redirect('/setup?error=mismatch');
-    if (authMode === 'api_key' && !apiKey) redirect('/setup?error=nokey');
-    if (authMode === 'claude_code' && !oauthToken) redirect('/setup?error=nokey');
 
     createUser(username, password);
     updateSettings({
