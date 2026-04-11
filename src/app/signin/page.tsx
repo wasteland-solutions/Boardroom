@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 import { signIn, oidcConfigured } from '@/lib/auth';
 import { isSetupComplete } from '@/lib/settings-store';
 
+// Don't prerender — needs runtime DB access.
+export const dynamic = 'force-dynamic';
+
 export default async function SignInPage({
   searchParams,
 }: {

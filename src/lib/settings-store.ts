@@ -20,9 +20,14 @@ const USER_KEYS = {
 
 /** Returns true if a user has been registered (setup is complete). */
 export function isSetupComplete(): boolean {
-  const db = getDb();
-  const row = db.select().from(settings).where(eq(settings.key, USER_KEYS.passwordHash)).get();
-  return !!row;
+  try {
+    const db = getDb();
+    const row = db.select().from(settings).where(eq(settings.key, USER_KEYS.passwordHash)).get();
+    return !!row;
+  } catch {
+    // DB not ready (build time or first boot before migrations).
+    return false;
+  }
 }
 
 /** Get the registered user, or null if setup hasn't been completed. */
