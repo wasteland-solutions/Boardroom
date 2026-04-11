@@ -21,12 +21,9 @@ const nextConfig = {
       ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
       : "script-src 'self' 'unsafe-inline'";
 
-    // WebSocket: scope to localhost/127.0.0.1 instead of wildcard *:*.
-    // In production behind a reverse proxy the WS is typically on the same
-    // origin, but we keep localhost for direct-access deployments.
-    const connectSrc = isDev
-      ? "connect-src 'self' ws://localhost:* ws://127.0.0.1:*"
-      : "connect-src 'self' ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*";
+    // WebSocket: allow any host since the terminal WS port differs from
+    // the web port and the browser connects by IP/hostname directly.
+    const connectSrc = "connect-src 'self' ws://*:* wss://*:*";
 
     return [
       {
