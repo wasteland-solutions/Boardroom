@@ -12,9 +12,14 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 # ---------- deps ----------
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml .npmrc ./
 COPY scripts/fix-node-pty.mjs scripts/fix-node-pty.mjs
+# .npmrc has enable-pre-post-scripts=true so better-sqlite3's
+# prebuild-install and node-pty's postinstall actually run.
 RUN pnpm install --frozen-lockfile
+
+# Verify the native binding exists before proceeding.
+RUN node -e "require('better-sqlite3')" && echo "better-sqlite3 OK"
 
 # ---------- build ----------
 FROM base AS builder
