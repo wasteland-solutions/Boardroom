@@ -17,31 +17,20 @@ A self-hosted web app for chatting with coding agents. Pick a provider — **Cla
 
 ## Quickstart
 
-### Docker Compose
-
 ```bash
 git clone https://github.com/wasteland-solutions/Boardroom.git
 cd Boardroom
-cp .env.example .env
-# Edit .env: set AUTH_SECRET and at least one sign-in method
-# (BOARDROOM_USERNAME + BOARDROOM_PASSWORD is the simplest)
-docker compose up -d
-```
-
-Open <http://localhost:3000>, sign in, go to **Settings** to paste your API key(s) and add a working directory, then click **+** to start a conversation.
-
-**Docker note:** the agent runs inside the container, so mount your project directories in `docker-compose.yml` under `volumes:` first, then add the container-side path in Settings.
-
-### Without Docker
-
-```bash
 npm install
 cp .env.example .env    # set AUTH_SECRET + sign-in credentials
 npm run db:migrate
 npm run dev
 ```
 
-Runs Next.js + the agent worker together on port 3000.
+Open <http://localhost:3000>, sign in, go to **Settings** to paste your API key(s) and add a working directory, then click **+** to start a conversation.
+
+### Docker (optional)
+
+Docker files are in the `docker/` folder. See `docker/docker-compose.yml` for usage.
 
 ## Environment variables
 
