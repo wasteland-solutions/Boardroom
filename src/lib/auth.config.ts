@@ -8,6 +8,7 @@ import type { NextAuthConfig } from 'next-auth';
 // in `auth.ts` and is used by route handlers and server components. Both
 // configs spread this base, so the session cookie is compatible between them.
 export const authConfig = {
+  trustHost: true,
   pages: {
     signIn: '/signin',
     error: '/signin',
