@@ -86,7 +86,7 @@ export const oidcConfigured = oidcEnabled;
 const authConfig: NextAuthConfig = {
   ...baseAuthConfig,
   secret: process.env.AUTH_SECRET,
-  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith('https://') || process.env.NODE_ENV === 'production',
+  useSecureCookies: process.env.NEXTAUTH_URL?.startsWith('https://'),
   providers,
   callbacks: {
     ...baseAuthConfig.callbacks,
