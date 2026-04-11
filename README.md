@@ -17,12 +17,14 @@ A self-hosted web app for chatting with coding agents. Pick a provider — **Cla
 
 ## Quickstart
 
+**Prerequisites:** Node 22+, build tools (`sudo apt-get install -y build-essential` on Ubuntu, `xcode-select --install` on macOS).
+
 ```bash
 git clone https://github.com/wasteland-solutions/Boardroom.git
 cd Boardroom
 npm install
-cp .env.example .env    # set AUTH_SECRET + sign-in credentials
-npm run db:migrate
+npm run setup    # creates data/, .env, runs migrations, checks prerequisites
+# edit .env — set BOARDROOM_USERNAME and BOARDROOM_PASSWORD
 npm run dev
 ```
 

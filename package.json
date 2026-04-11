@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
+    "setup": "node scripts/setup.mjs",
     "postinstall": "node scripts/fix-node-pty.mjs"
   },
   "engines": {
