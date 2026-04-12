@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-// highlight.js theme — dark dimmed works well in both modes since our code
-// blocks already have dark backgrounds via --bg-elev-1.
+import { cookies } from 'next/headers';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
 import './globals.css';
 
@@ -9,16 +8,21 @@ export const metadata: Metadata = {
   description: 'A single-user DM chat with Claude Code, bridged via the Claude Agent SDK.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// Theme script: reads from localStorage, sets data-theme on <html>, and
+// syncs to a cookie so the server can read it on the next request.
+const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(t){document.documentElement.setAttribute('data-theme',t);document.cookie='theme='+t+';path=/;max-age=31536000;SameSite=Lax'}}catch(e){}})()`;
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = await cookies();
+  const theme = cookieStore.get('theme')?.value || '';
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme={theme || undefined} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)" />
         <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
-        {/* Must be blocking (not async/defer) to prevent flash of wrong theme */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script src="/theme.js" />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>{children}</body>
     </html>
