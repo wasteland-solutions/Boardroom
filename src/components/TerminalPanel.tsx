@@ -85,7 +85,14 @@ export function TerminalPanel({ conversationId }: { conversationId: string }) {
         if (disposed) return;
 
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${window.location.hostname}:${wsPort}${path}`;
+        // If accessing through a reverse proxy (port 80/443), connect via
+        // the same origin — the proxy forwards /terminal to the WS port.
+        // If accessing directly, use the WS port.
+        const directAccess = window.location.port && !['80', '443', ''].includes(window.location.port);
+        const host = directAccess
+          ? `${window.location.hostname}:${wsPort}`
+          : window.location.host;
+        const url = `${proto}//${host}${path}`;
         ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
 
