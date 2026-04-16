@@ -687,3 +687,48 @@ h1, h2, h3 { text-wrap: balance; }
   font-size: 13px; color: var(--danger); text-align: center;
   max-width: 380px; width: 100%;
 }
+
+/* ==========================================================================
+   Mobile
+   ========================================================================== */
+
+.mobile-menu {
+  display: none;
+  position: fixed;
+  top: 12px; left: 12px;
+  z-index: 80;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 6px;
+  box-shadow: var(--shadow);
+  color: var(--text-dim);
+}
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 85;
+}
+
+@media (max-width: 768px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 280px;
+    z-index: 90;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sidebar.sidebar-open { transform: translateX(0); }
+  .mobile-menu { display: flex; }
+  .sidebar-backdrop { display: block; }
+  .main-panel { padding: 12px 14px; padding-top: 48px; }
+  .chat-header { padding: 10px 14px; padding-left: 48px; }
+  .messages { padding: 16px 14px; }
+  .composer-wrap { padding: 10px 14px; }
+  .msg { max-width: 100%; }
+}

@@ -96,6 +96,7 @@ export function ChatShell({
   const [text, setText] = useState('');
   const [showNew, setShowNew] = useState(current === null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [showChat, setShowChat] = useState(initialMode !== 'terminal');
   const [showTerminal, setShowTerminal] = useState(initialMode === 'terminal');
   const [stopped, setStopped] = useState(false);
@@ -511,7 +512,7 @@ export function ChatShell({
 
   const sidebar = useMemo(
     () => (
-      <aside className="sidebar">
+      <aside className={`sidebar${showSidebar ? ' sidebar-open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <div className="wordmark" aria-hidden="true" />
@@ -540,6 +541,7 @@ export function ChatShell({
                 key={c.id}
                 href={`/c/${c.id}`}
                 className={`conv-item${current?.id === c.id ? ' active' : ''}`}
+                onClick={() => setShowSidebar(false)}
               >
                 <div className="title">{c.title ?? 'Untitled'}</div>
                 <div className="meta">{c.cwd}</div>
@@ -614,7 +616,16 @@ export function ChatShell({
         </div>
       </aside>
     ),
-    [activeConvs, archivedConvs, current?.id, router, showArchived],
+    [activeConvs, archivedConvs, current?.id, router, showArchived, showSidebar],
+  );
+
+  const mobileNav = (
+    <>
+      {showSidebar && <div className="sidebar-backdrop" onClick={() => setShowSidebar(false)} />}
+      <button className="mobile-menu" aria-label="Menu" onClick={() => setShowSidebar(!showSidebar)}>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </>
   );
 
   const settingsDrawer = showSettings && (
@@ -653,6 +664,7 @@ export function ChatShell({
     return (
       <div className="app">
         {sidebar}
+        {mobileNav}
         <main className="main-panel">
           <div className="chat">
             <div className="empty-state">
@@ -671,6 +683,7 @@ export function ChatShell({
   return (
     <div className="app">
       {sidebar}
+      {mobileNav}
       <main className="main-panel">
         <header className="chat-header">
           <div>
