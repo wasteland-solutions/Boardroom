@@ -695,14 +695,16 @@ h1, h2, h3 { text-wrap: balance; }
 .mobile-menu {
   display: none;
   position: fixed;
-  top: 12px; left: 12px;
+  top: env(safe-area-inset-top, 8px);
+  left: env(safe-area-inset-left, 8px);
   z-index: 80;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
-  padding: 6px;
+  padding: 8px;
   box-shadow: var(--shadow);
   color: var(--text-dim);
+  margin: 4px;
 }
 .sidebar-backdrop {
   display: none;
@@ -713,22 +715,92 @@ h1, h2, h3 { text-wrap: balance; }
 }
 
 @media (max-width: 768px) {
-  .app { grid-template-columns: 1fr; }
+  /* Use dynamic viewport height for mobile browser chrome */
+  html, body { height: 100dvh; }
+
+  /* Single column layout */
+  .app { grid-template-columns: 1fr; height: 100dvh; }
+
+  /* Sidebar: off-screen overlay */
   .sidebar {
     position: fixed;
     top: 0; left: 0; bottom: 0;
-    width: 280px;
+    width: min(300px, 85vw);
     z-index: 90;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    transition: transform 0.25s ease;
     box-shadow: var(--shadow-lg);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
   }
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-menu { display: flex; }
   .sidebar-backdrop { display: block; }
-  .main-panel { padding: 12px 14px; padding-top: 48px; }
-  .chat-header { padding: 10px 14px; padding-left: 48px; }
-  .messages { padding: 16px 14px; }
-  .composer-wrap { padding: 10px 14px; }
+
+  /* Main panel: full width, account for hamburger */
+  .main-panel {
+    height: 100dvh;
+    padding: 0;
+  }
+
+  /* Chat header: compact, leave room for hamburger */
+  .chat-header {
+    padding: 10px 12px 10px 48px;
+    gap: 8px;
+  }
+  .chat-title { font-size: 15px; }
+  .chat-subtitle { display: none; }
+  .chat-header > div:last-child { gap: 4px; }
+  .chat-header .btn { padding: 6px 10px; font-size: 11px; }
+
+  /* Messages: edge-to-edge */
+  .messages { padding: 12px; }
   .msg { max-width: 100%; }
+  .msg-bubble { padding: 12px 14px; font-size: 14px; }
+  .msg-role { font-size: 10px; }
+
+  /* Composer: safe area at bottom */
+  .composer-wrap {
+    padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  }
+  .composer textarea {
+    min-height: 40px;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+  .composer .btn { padding: 8px 14px; }
+
+  /* Terminal: full width, not side-by-side */
+  .workspace-split.with-terminal { flex-direction: column; }
+  .workspace-split.with-terminal > .chat,
+  .workspace-split.with-terminal > .terminal-panel { min-height: 40dvh; }
+  .terminal-panel { border-left: none; border-top: 1px solid var(--border); }
+
+  /* Modal: full-width sheet on mobile */
+  .modal-backdrop { padding: 0; align-items: flex-end; }
+  .modal {
+    width: 100%;
+    max-height: 90dvh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    margin-top: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Drawer: full width on mobile */
+  .drawer { width: 100%; }
+
+  /* Buttons: larger touch targets */
+  .btn { min-height: 44px; padding: 10px 16px; }
+  .icon-btn { width: 36px; height: 36px; font-size: 16px; }
+
+  /* Sign-in / Setup */
+  .signin-panel { padding: 24px 16px; }
+  .signin-forms { max-width: 100%; }
+  .signin-form { padding: 18px 16px; }
+
+  /* Settings panel inside drawer */
+  .panel { padding: 14px; }
+  .panel section { padding: 14px; }
+
+  /* Empty state */
+  .empty-state { padding-top: 60px; }
 }
