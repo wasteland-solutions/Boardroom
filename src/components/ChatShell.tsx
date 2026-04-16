@@ -700,12 +700,17 @@ export function ChatShell({
             <button
               className={`btn ghost${showChat ? ' active' : ''}`}
               onClick={() => {
-                setShowChat((v) => {
-                  const next = !v;
-                  // If hiding chat, make sure terminal is visible.
-                  if (!next && !showTerminal) setShowTerminal(true);
-                  return next;
-                });
+                const isMobile = window.innerWidth <= 768;
+                if (isMobile) {
+                  setShowChat(true);
+                  setShowTerminal(false);
+                } else {
+                  setShowChat((v) => {
+                    const next = !v;
+                    if (!next && !showTerminal) setShowTerminal(true);
+                    return next;
+                  });
+                }
               }}
               title="Toggle chat panel"
             >
@@ -714,12 +719,17 @@ export function ChatShell({
             <button
               className={`btn ghost${showTerminal ? ' active' : ''}`}
               onClick={() => {
-                setShowTerminal((v) => {
-                  const next = !v;
-                  // If hiding terminal, make sure chat is visible.
-                  if (!next && !showChat) setShowChat(true);
-                  return next;
-                });
+                const isMobile = window.innerWidth <= 768;
+                if (isMobile) {
+                  setShowTerminal(true);
+                  setShowChat(false);
+                } else {
+                  setShowTerminal((v) => {
+                    const next = !v;
+                    if (!next && !showChat) setShowChat(true);
+                    return next;
+                  });
+                }
               }}
               title="Toggle terminal"
             >
@@ -736,7 +746,7 @@ export function ChatShell({
               </button>
             ) : (
               <button
-                className="btn ghost"
+                className="btn ghost hide-mobile"
                 onClick={() => setArchived(true)}
                 disabled={busy}
                 title="Archive — tears down the SDK session and pty"

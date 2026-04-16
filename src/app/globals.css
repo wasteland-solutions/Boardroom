@@ -764,7 +764,7 @@ h1, h2, h3 { text-wrap: balance; }
     flex-wrap: wrap;
   }
   .chat-header .btn { padding: 5px 8px; font-size: 11px; min-height: 32px; }
-  .chat-header .btn.ghost { display: none; } /* Hide Archive on mobile */
+  .hide-mobile { display: none !important; }
 
   /* Messages: edge-to-edge */
   .messages { padding: 12px; }
@@ -782,11 +782,19 @@ h1, h2, h3 { text-wrap: balance; }
   }
   .composer .btn { padding: 8px 14px; }
 
-  /* Terminal: full width, not side-by-side */
+  /* Terminal: full screen on mobile, stacks when both visible */
+  .workspace-split { flex: 1; }
   .workspace-split.with-terminal { flex-direction: column; }
-  .workspace-split.with-terminal > .chat,
-  .workspace-split.with-terminal > .terminal-panel { min-height: 40dvh; }
-  .terminal-panel { border-left: none; border-top: 1px solid var(--border); }
+  .workspace-split.with-terminal > .chat { flex: 1; min-height: 30dvh; }
+  .workspace-split.with-terminal > .terminal-panel,
+  .workspace-split.with-terminal > div:has(.terminal-panel) { flex: 1; min-height: 40dvh; }
+  .workspace-split.terminal-only > .terminal-panel,
+  .workspace-split.terminal-only > div:has(.terminal-panel) { flex: 1; }
+  .terminal-panel { border-left: none; border-top: 1px solid var(--border); flex: 1; }
+  .terminal-header { padding: 4px 10px; font-size: 10px; }
+
+  /* Hide debug info on mobile */
+  .main-panel > div:last-child { display: none; }
 
   /* Modal: full-width bottom sheet on mobile */
   .modal-backdrop { padding: 0; align-items: flex-end; }
