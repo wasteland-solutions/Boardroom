@@ -637,7 +637,15 @@ h1, h2, h3 { text-wrap: balance; }
   padding: 8px 14px; border-bottom: 1px solid var(--border);
   font-size: 12px; font-weight: 600; color: var(--text-dim);
 }
-.terminal-body { flex: 1; position: relative; overflow: hidden; }
+.terminal-body {
+  flex: 1; position: relative; overflow: hidden;
+}
+/* Allow xterm.js touch scrolling on mobile */
+.terminal-body .xterm-viewport {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
 .terminal-status { padding: 20px; text-align: center; color: var(--text-dim); font-size: 12px; }
 
 /* ==========================================================================

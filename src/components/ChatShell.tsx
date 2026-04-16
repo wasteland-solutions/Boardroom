@@ -822,7 +822,9 @@ export function ChatShell({
             </div>
           </div>
         </section>}
-        {showTerminal && <TerminalPanel conversationId={current.id} />}
+        <div style={{ display: showTerminal ? 'contents' : 'none' }}>
+          <TerminalPanel conversationId={current.id} />
+        </div>
         {/* When both are hidden (shouldn't happen, but safety net) */}
         {!showChat && !showTerminal && (
           <div className="empty-state">
