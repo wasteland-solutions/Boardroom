@@ -3,10 +3,18 @@ import { cookies } from 'next/headers';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
 import './globals.css';
 
+import type { Viewport } from 'next';
+
 export const metadata: Metadata = {
   title: 'Boardroom — DM with Claude Code',
   description: 'A single-user DM chat with Claude Code, bridged via the Claude Agent SDK.',
-  viewport: 'width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: 'cover',
 };
 
 // Theme script: reads from localStorage, sets data-theme on <html>, and
