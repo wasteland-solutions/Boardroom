@@ -110,9 +110,62 @@ export function SettingsForm({
     }
   };
 
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwStatus, setPwStatus] = useState<string | null>(null);
+  const [pwSaving, setPwSaving] = useState(false);
+
+  const changePassword = async () => {
+    setPwStatus(null);
+    if (newPw.length < 8) { setPwStatus('New password must be at least 8 characters.'); return; }
+    if (newPw !== confirmPw) { setPwStatus('Passwords do not match.'); return; }
+    setPwSaving(true);
+    try {
+      const res = await fetch('/api/account', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setPwStatus(body.error || 'Failed to change password.');
+      } else {
+        setPwStatus('Password changed.');
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmPw('');
+      }
+    } catch {
+      setPwStatus('Failed to change password.');
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   return (
     <div className="panel">
       <h1>Settings</h1>
+
+      <section>
+        <h2>Account</h2>
+        <label>
+          <span>Current password</span>
+          <input type="password" autoComplete="current-password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
+        </label>
+        <label>
+          <span>New password</span>
+          <input type="password" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+        </label>
+        <label>
+          <span>Confirm new password</span>
+          <input type="password" autoComplete="new-password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
+        </label>
+        <button className="btn" onClick={changePassword} disabled={pwSaving || !currentPw || !newPw}>
+          {pwSaving ? 'Changing…' : 'Change password'}
+        </button>
+        {pwStatus && <div style={{ marginTop: 6, fontSize: 12, color: pwStatus === 'Password changed.' ? 'var(--success)' : 'var(--danger)' }}>{pwStatus}</div>}
+      </section>
 
       <section>
         <h2>Claude credentials</h2>

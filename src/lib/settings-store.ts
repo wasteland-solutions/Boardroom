@@ -60,6 +60,18 @@ export function createUser(username: string, password: string): void {
   db.insert(settings).values({ key: USER_KEYS.passwordHash, value: JSON.stringify(passwordHash) }).run();
 }
 
+/** Change the user's password. */
+export function changePassword(newPassword: string): void {
+  const db = getDb();
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(newPassword, salt, 64).toString('hex');
+  const passwordHash = `scrypt:${salt}:${hash}`;
+  db.update(settings)
+    .set({ value: JSON.stringify(passwordHash) })
+    .where(eq(settings.key, USER_KEYS.passwordHash))
+    .run();
+}
+
 /** Verify a password against the stored hash. */
 export function verifyPassword(password: string, stored: string): boolean {
   const parts = stored.split(':');
