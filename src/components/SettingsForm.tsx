@@ -145,7 +145,6 @@ export function SettingsForm({
 
   return (
     <div className="panel">
-      <h1>Settings</h1>
 
       <section>
         <h2>Account</h2>

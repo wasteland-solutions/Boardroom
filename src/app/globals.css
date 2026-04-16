@@ -753,13 +753,18 @@ h1, h2, h3 { text-wrap: balance; }
 
   /* Chat header: compact, leave room for hamburger */
   .chat-header {
-    padding: 10px 12px 10px 48px;
-    gap: 8px;
+    padding: 8px 10px 8px 44px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
-  .chat-title { font-size: 15px; }
+  .chat-title { font-size: 14px; }
   .chat-subtitle { display: none; }
-  .chat-header > div:last-child { gap: 4px; }
-  .chat-header .btn { padding: 6px 10px; font-size: 11px; }
+  .chat-header > div:last-child {
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .chat-header .btn { padding: 5px 8px; font-size: 11px; min-height: 32px; }
+  .chat-header .btn.ghost { display: none; } /* Hide Archive on mobile */
 
   /* Messages: edge-to-edge */
   .messages { padding: 12px; }
@@ -783,15 +788,15 @@ h1, h2, h3 { text-wrap: balance; }
   .workspace-split.with-terminal > .terminal-panel { min-height: 40dvh; }
   .terminal-panel { border-left: none; border-top: 1px solid var(--border); }
 
-  /* Modal: full-width sheet on mobile */
+  /* Modal: full-width bottom sheet on mobile */
   .modal-backdrop { padding: 0; align-items: flex-end; }
   .modal {
     width: 100%;
-    max-height: 90dvh;
+    max-height: 85dvh;
     border-radius: var(--radius) var(--radius) 0 0;
     margin-top: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  .modal > div:last-child { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
 
   /* Drawer: full width on mobile */
   .drawer { width: 100%; }

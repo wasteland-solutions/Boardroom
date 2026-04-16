@@ -523,11 +523,11 @@ export function ChatShell({
               className="icon-btn"
               title="New conversation"
               aria-label="New conversation"
-              onClick={() => setShowNew(true)}
+              onClick={() => { setShowNew(true); setShowSidebar(false); }}
             >
               +
             </button>
-            <button className="icon-btn" title="Settings" aria-label="Settings" onClick={() => setShowSettings(!showSettings)}>
+            <button className="icon-btn" title="Settings" aria-label="Settings" onClick={() => { setShowSettings(!showSettings); setShowSidebar(false); }}>
               ⚙
             </button>
           </div>
@@ -670,7 +670,7 @@ export function ChatShell({
             <div className="empty-state">
               <div className="wordmark" aria-hidden="true" />
               <h2>Nothing here yet</h2>
-              <p>Create a new conversation from the sidebar to get started.</p>
+              <p>Tap <strong>+</strong> to start a new conversation.</p>
             </div>
           </div>
         </main>
